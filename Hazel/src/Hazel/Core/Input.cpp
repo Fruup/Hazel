@@ -9,6 +9,12 @@ namespace Hazel {
 
 	Scope<Input> Input::s_Instance = Input::Create();
 
+	void Input::OnUpdate()
+	{
+		for (const auto& pad : s_Instance->m_Gamepads)
+			pad->PollState();
+	}
+
 	Ref<Gamepad> Input::FindGamepad(int id)
 	{
 		for (const auto& pad : s_Instance->m_Gamepads)

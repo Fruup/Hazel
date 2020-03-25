@@ -84,6 +84,12 @@ namespace Hazel {
 			if (!m_Minimized)
 			{
 				{
+					HZ_PROFILE_SCOPE("Input OnUpdate");
+
+					Input::OnUpdate();
+				}
+
+				{
 					HZ_PROFILE_SCOPE("LayerStack OnUpdate");
 
 					for (Layer* layer : m_LayerStack)

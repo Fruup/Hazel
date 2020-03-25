@@ -25,6 +25,7 @@ namespace Hazel {
 
 		inline static void Init() { return s_Instance->InitImpl(); }
 		inline static void Shutdown() { return s_Instance->ShutdownImpl(); }
+		static void OnUpdate();
 
 		static Ref<Gamepad> FindGamepad(int id);
 		inline static const std::vector<Ref<Gamepad>>& GetGamepadList() { return s_Instance->m_Gamepads; }
