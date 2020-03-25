@@ -25,11 +25,11 @@ namespace Hazel {
 		None = 0,
 		EventCategoryApplication = BIT(0),
 
-			EventCategoryKeyboard		= BIT(2),
-			EventCategoryMouse			= BIT(3),
-			EventCategoryMouseButton	= BIT(4),
-			EventCategoryGamepad		= BIT(5),
-		EventCategoryInput = EventCategoryKeyboard | EventCategoryMouse | EventCategoryMouseButton | EventCategoryGamepad
+		EventCategoryKeyboard		= BIT(1),
+		EventCategoryMouse			= BIT(2),
+		EventCategoryMouseButton	= BIT(3),
+		EventCategoryGamepad		= BIT(4),
+		EventCategoryInput = EventCategoryKeyboard | EventCategoryMouse | EventCategoryMouseButton | EventCategoryGamepad,
 	};
 
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\
