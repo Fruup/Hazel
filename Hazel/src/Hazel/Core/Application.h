@@ -29,6 +29,7 @@ namespace Hazel {
 		inline Window& GetWindow() { return *m_Window; }
 
 		inline static Application& Get() { return *s_Instance; }
+		inline static void PushEvent(Event& e) { Get().OnEvent(e); }
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
