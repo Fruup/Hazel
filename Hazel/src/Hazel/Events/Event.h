@@ -17,7 +17,7 @@ namespace Hazel {
 		AppTick, AppUpdate, AppRender,
 		KeyPressed, KeyReleased, KeyTyped,
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
-		GamepadConnected, GamepadDisconnected
+		GamepadConnected, GamepadDisconnected, GamepadButtonPressed, GamepadButtonReleased, GamepadAxisMoved
 	};
 
 	enum EventCategory

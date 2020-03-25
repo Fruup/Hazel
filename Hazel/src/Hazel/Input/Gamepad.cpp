@@ -1,6 +1,9 @@
 #include "hzpch.h"
 #include "Gamepad.h"
 
+#include "Hazel/Core/Application.h"
+#include "Hazel/Events/GamepadEvent.h"
+
 namespace Hazel
 {
 	Gamepad::Gamepad(int id, const char* name) :
@@ -19,6 +22,11 @@ namespace Hazel
 		if (PollStateImpl())
 		{
 			CorrectState();
+			GenerateEvents();
+
+			// Store state
+			memcpy(&m_PrevState, &m_State, sizeof(State));
+
 			return true;
 		}
 
@@ -59,5 +67,20 @@ namespace Hazel
 			// Scale
 			m_State.axes[trigger + 4] = fmaxf(fminf((fabs(x) - m_Config.deadzone[trigger + 2]) * invDelta, 1.0f), 0.0f);
 		}*/
+	}
+
+	void Gamepad::GenerateEvents()
+	{
+		for (int i = 0; i < NumButtons; i++)
+		{
+			if (m_PrevState.buttons[i] && !m_State.buttons[i])
+				Application::PushEvent(GamepadButtonReleasedEvent(Input::FindGamepad(GetId()), (GamepadButton)i));
+			else if (!m_PrevState.buttons[i] && m_State.buttons[i])
+				Application::PushEvent(GamepadButtonPressedEvent(Input::FindGamepad(GetId()), (GamepadButton)i));
+		}
+
+		for (int i = 0; i < NumAxes; ++i)
+			if (m_State.axes[i] != m_PrevState.axes[i])
+				Application::PushEvent(GamepadAxisMovedEvent(Input::FindGamepad(GetId()), i));
 	}
 }

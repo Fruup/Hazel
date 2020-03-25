@@ -4,35 +4,80 @@
 
 namespace Hazel
 {
-	class GamepadConnectedEvent : public Event
+#define GAMEPAD_EVENT_CLASS(type) \
+	EVENT_CLASS_TYPE(type) \
+	EVENT_CLASS_CATEGORY(EventCategoryGamepad)
+
+	class GamepadEvent : public Event
 	{
 	public:
-		GamepadConnectedEvent() = delete;
-		GamepadConnectedEvent(int jid) :
-			m_jid(jid) {}
+		GamepadEvent() = delete;
 
-		inline int GetJID() const { return m_jid; }
+		inline const Ref<Gamepad>& GetGamepad() const { return m_Gamepad; }
+		inline int GetGamepadId() const { return m_Gamepad->GetId(); }
 
-		EVENT_CLASS_TYPE(GamepadConnected)
-		EVENT_CLASS_CATEGORY(EventCategoryGamepad)
+	protected:
+		GamepadEvent(const Ref<Gamepad>& gamepad) :
+			m_Gamepad(gamepad) {}
 
 	private:
-		int m_jid;
+		Ref<Gamepad> m_Gamepad;
 	};
 
-	class GamepadDisconnectedEvent : public Event
+	class GamepadConnectedEvent : public GamepadEvent
 	{
 	public:
-		GamepadDisconnectedEvent() = delete;
-		GamepadDisconnectedEvent(int jid) :
-			m_jid(jid) {}
+		GamepadConnectedEvent(const Ref<Gamepad>& gamepad) :
+			GamepadEvent(gamepad) {}
 
-		inline int GetJID() const { return m_jid; }
+		GAMEPAD_EVENT_CLASS(GamepadConnected)
+	};
 
-		EVENT_CLASS_TYPE(GamepadDisconnected)
-		EVENT_CLASS_CATEGORY(EventCategoryGamepad)
+	class GamepadDisconnectedEvent : public GamepadEvent
+	{
+	public:
+		GamepadDisconnectedEvent(const Ref<Gamepad>& gamepad) :
+			GamepadEvent(gamepad) {}
+
+		GAMEPAD_EVENT_CLASS(GamepadDisconnected)
+	};
+
+	class GamepadButtonPressedEvent : public GamepadEvent
+	{
+	public:
+		GamepadButtonPressedEvent(const Ref<Gamepad>& gamepad, GamepadButton button) :
+			GamepadEvent(gamepad), m_Button(button) {}
+
+		inline GamepadButton GetButton() const { return m_Button; }
+		GAMEPAD_EVENT_CLASS(GamepadButtonPressed)
 
 	private:
-		int m_jid;
+		GamepadButton m_Button;
+	};
+
+	class GamepadButtonReleasedEvent : public GamepadEvent
+	{
+	public:
+		GamepadButtonReleasedEvent(const Ref<Gamepad>& gamepad, GamepadButton button) :
+			GamepadEvent(gamepad), m_Button(button) {}
+
+		inline GamepadButton GetButton() const { return m_Button; }
+		GAMEPAD_EVENT_CLASS(GamepadButtonReleased)
+
+	private:
+		GamepadButton m_Button;
+	};
+
+	class GamepadAxisMovedEvent : public GamepadEvent
+	{
+	public:
+		GamepadAxisMovedEvent(const Ref<Gamepad>& gamepad, int axis) :
+			GamepadEvent(gamepad), m_Axis(axis) {}
+
+		inline int GetAxis() const { return m_Axis; }
+		GAMEPAD_EVENT_CLASS(GamepadAxisMoved)
+
+	private:
+		int m_Axis;
 	};
 }

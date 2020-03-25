@@ -4,6 +4,18 @@
 
 namespace Hazel
 {
+	enum GamepadButton
+	{
+		GamepadButtonA,
+		GamepadButtonB,
+		GamepadButtonX,
+		GamepadButtonY,
+		GamepadButtonL,
+		GamepadButtonR,
+		GamepadButtonLstick,
+		GamepadButtonRstick
+	};
+
 	class Gamepad
 	{
 	public:
@@ -45,10 +57,11 @@ namespace Hazel
 		int m_Id;
 		std::string m_Name;
 
-		State m_State, m_StateUncorrected;
+		State m_State, m_PrevState, m_StateUncorrected;
 		Config m_Config;
 
 	private:
 		void CorrectState();
+		void GenerateEvents();
 	};
 }

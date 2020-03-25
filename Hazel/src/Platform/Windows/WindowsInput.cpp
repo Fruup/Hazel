@@ -83,24 +83,20 @@ namespace Hazel {
 					{
 					case GLFW_CONNECTED:
 					{
-						// Add new gamepad
+						// Add new gamepad and push event
 						const auto& pad = Input::CreateGamepad(jid, glfwGetGamepadName(jid));
+						Application::PushEvent(GamepadConnectedEvent(pad));
 
-						GamepadConnectedEvent e(jid);
-						Application::Get().OnEvent(e);
-
-						HZ_CORE_INFO("New gamepad with id {0} connected", jid);
+						HZ_CORE_INFO("New gamepad connected: {0} (id {1})", pad->GetName(), jid);
 						break;
 					}
 					case GLFW_DISCONNECTED:
 					{
-						// Find gamepad
-						//const auto& pad = Input::FindGamepad(jid);
+						// Find gamepad and push event
+						const auto& pad = Input::FindGamepad(jid);
+						Application::PushEvent(GamepadDisconnectedEvent(pad));
 
-						GamepadDisconnectedEvent e(jid);
-						Application::Get().OnEvent(e);
-
-						HZ_CORE_INFO("Gamepad with id {0} disconnected", jid);
+						HZ_CORE_INFO("Gamepad {0} (id {1}) disconnected", pad->GetName(), jid);
 						break;
 					}
 					default:
