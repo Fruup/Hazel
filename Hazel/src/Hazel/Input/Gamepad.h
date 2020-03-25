@@ -10,10 +10,23 @@ namespace Hazel
 		GamepadButtonB,
 		GamepadButtonX,
 		GamepadButtonY,
+
 		GamepadButtonL,
 		GamepadButtonR,
+
+		GamepadButtonSelect,
+		GamepadButtonStart,
+		GamepadButton_DontKnowWhatThatIs,
+
 		GamepadButtonLstick,
-		GamepadButtonRstick
+		GamepadButtonRstick,
+
+		GamepadButtonUp,
+		GamepadButtonRight,
+		GamepadButtonDown,
+		GamepadButtonLeft,
+
+		GamepadButton_AlsoDontKnowWhatThatIs
 	};
 
 	class Gamepad
