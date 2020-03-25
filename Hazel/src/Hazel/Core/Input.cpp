@@ -9,6 +9,15 @@ namespace Hazel {
 
 	Scope<Input> Input::s_Instance = Input::Create();
 
+	Ref<Gamepad> Input::FindGamepad(int id)
+	{
+		for (const auto& pad : s_Instance->m_Gamepads)
+			if (pad->GetId() == id)
+				return pad;
+
+		return Ref<Gamepad>();
+	}
+
 	Scope<Input> Input::Create()
 	{
 	#ifdef HZ_PLATFORM_WINDOWS
@@ -18,4 +27,4 @@ namespace Hazel {
 		return nullptr;
 	#endif
 	}
-} 
+}

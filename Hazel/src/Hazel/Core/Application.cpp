@@ -22,6 +22,7 @@ namespace Hazel {
 		m_Window = Window::Create();
 		m_Window->SetEventCallback(HZ_BIND_EVENT_FN(Application::OnEvent));
 
+		Input::Init();
 		Renderer::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
@@ -33,6 +34,7 @@ namespace Hazel {
 		HZ_PROFILE_FUNCTION();
 
 		Renderer::Shutdown();
+		Input::Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)
