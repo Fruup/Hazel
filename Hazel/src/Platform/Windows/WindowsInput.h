@@ -13,6 +13,14 @@ namespace Hazel {
 		virtual std::pair<float, float> GetMousePositionImpl() override;
 		virtual float GetMouseXImpl() override;
 		virtual float GetMouseYImpl() override;
+
+		virtual void OnUpdateImpl(Timestep time) override;
+
+		virtual Ref<Gamepad> CreateGamepadImpl(int id, const char* name) override;
+
+	private:
+		virtual void InitImpl() override;
+		virtual void ShutdownImpl() override;
 	};
 
 }
