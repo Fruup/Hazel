@@ -34,8 +34,8 @@ namespace Hazel
 	class NetPacket
 	{
 	public:
-		NetPacket
-		();
+		NetPacket();
+		NetPacket(const ENetPacket* packet);
 		NetPacket(NetMsgType type, ClientId to);
 		NetPacket(void* data, size_t size, NetMsgType type, ClientId to);
 		
@@ -55,6 +55,8 @@ namespace Hazel
 		inline NetMsgType GetType() const { return m_Type; }
 		inline ClientId GetRecipient() const { return m_To; }
 		inline ClientId GetSender() const { return m_From; }
+		inline const enet_uint8* GetStream() const { return m_Stream; }
+		inline size_t GetStreamPointer() const { return m_StreamPointer; }
 
 		static constexpr int StreamSize = 128;
 
@@ -144,8 +146,8 @@ namespace Hazel
 
 		static void PushEngineEvents();
 
-		static std::string AddressToString(const ENetAddress* address);
-
+		inline static bool IsConnected() { return s_Data.Host != nullptr || (s_Data.Peer != nullptr && s_Data.Peer->state & ENET_PEER_STATE_CONNECTED); }
+		
 		inline static const NetworkingData& GetData() { return s_Data; }
 
 		static constexpr int StreamSize = 128;

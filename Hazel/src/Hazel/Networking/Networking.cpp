@@ -25,6 +25,18 @@ namespace Hazel
 	NetPacket::NetPacket() :
 		m_Type(0), m_To(Invalid), m_From(Invalid) {}
 
+	NetPacket::NetPacket(const ENetPacket* packet)
+	{
+		m_Type = *(NetMsgType*)(packet->data + 0);
+		m_To = *(ClientId*)(packet->data + sizeof(NetMsgType));
+		m_From = *(ClientId*)(packet->data + sizeof(NetMsgType) + sizeof(ClientId));
+
+		// Copy data, if existent
+		m_StreamPointer = packet->dataLength - GetPackedSize();
+		if (m_StreamPointer > 0)
+			memcpy(m_Stream, packet->data, m_StreamPointer);
+	}
+
 	NetPacket::NetPacket(NetMsgType type, ClientId to) :
 		m_Type(type), m_To(to), m_From(Networking::GetData().ClientId) {}
 
@@ -50,7 +62,8 @@ namespace Hazel
 
 	void Networking::Shutdown()
 	{
-		Disconnect();
+		if (IsConnected())
+			Disconnect();
 		
 		// Deinit enet
 		enet_deinitialize();
@@ -91,12 +104,18 @@ namespace Hazel
 
 	void Networking::Disconnect()
 	{
+		if (!IsConnected())
+			return;
+
 		// End thread and wait
 		s_Data.Listening = false;
 		s_Data.Thread.join();
 
 		// Destroy host
 		enet_host_destroy(s_Data.Host);
+
+		// Push event
+		Application::PushEvent(DisconnectedFromServerEvent());
 		
 		s_Data.SocketType = None;
 	}
@@ -116,6 +135,7 @@ namespace Hazel
 
 				// Push engine event to start listening on next occasion
 				QueueEngineEvent(new ConnectedToServerEvent());
+				return;
 			}
 
 			// Otherwise wait and try again
@@ -156,17 +176,16 @@ namespace Hazel
 
 	void Networking::PushEngineEvents()
 	{
-		/*while (!s_Data.EngineEventQueue.empty())
-			Application::PushEvent(s_Data.EngineEventQueue.front());*/
-	}
+		// Lock event queue and push events to application
+		s_Data.EngineEventQueueMutex.lock();
 
-	std::string Networking::AddressToString(const ENetAddress* address)
-	{
-		char ip[32]; char name[32];
-		enet_address_get_host(address, name, 32);
-		enet_address_get_host_ip(address, ip, 32);
+		while (!s_Data.EngineEventQueue.empty())
+		{
+			Application::PushEvent(*s_Data.EngineEventQueue.front());
+			s_Data.EngineEventQueue.pop();
+		}
 
-		return std::string(name) + "(" + std::string(ip) + ")";
+		s_Data.EngineEventQueueMutex.unlock();
 	}
 
 	void Networking::ListenServer()
@@ -197,6 +216,10 @@ namespace Hazel
 				}
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
+					NetPacket* packet = (NetPacket*)event.packet->data;
+
+					HZ_CORE_WARN("Net message from {0} to {1} saying \"{2}\"", packet->GetSender(), packet->GetRecipient(), (char*)packet->GetStream());
+
 					break;
 				}
 				default:
