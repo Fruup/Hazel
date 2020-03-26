@@ -38,6 +38,7 @@ namespace Hazel {
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVSync(bool enabled) = 0;
 		virtual bool IsVSync() const = 0;
+		virtual void SetSize(unsigned int width, unsigned int height) = 0;
 
 		virtual void* GetNativeWindow() const = 0;
 

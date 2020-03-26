@@ -197,4 +197,11 @@ namespace Hazel {
 		return m_Data.VSync;
 	}
 
+	void WindowsWindow::SetSize(unsigned int width, unsigned int height)
+	{
+		m_Data.Width = width;
+		m_Data.Height = height;
+		glfwSetWindowSize(m_Window, m_Data.Width, m_Data.Height);
+	}
+
 }
