@@ -91,6 +91,12 @@ project "Hazel"
 			"GLFW_INCLUDE_NONE"
 		}
 
+		links
+		{
+			"ws2_32.lib",
+			"Winmm.lib"
+		}
+
 	filter "configurations:Debug"
 		defines "HZ_DEBUG"
 		runtime "Debug"
@@ -127,7 +133,8 @@ project "Sandbox"
 		"Hazel/vendor/spdlog/include",
 		"Hazel/src",
 		"Hazel/vendor",
-		"%{IncludeDir.glm}"
+		"%{IncludeDir.glm}",
+		"%{IncludeDir.enet}"
 	}
 
 	links
