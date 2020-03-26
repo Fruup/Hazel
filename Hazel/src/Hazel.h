@@ -29,3 +29,6 @@
 
 #include "Hazel/Renderer/OrthographicCamera.h"
 // -----------------------------------
+#include "Hazel/Networking/Networking.h"
+
+// -----------------------------------

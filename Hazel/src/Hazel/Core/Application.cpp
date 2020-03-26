@@ -6,6 +6,7 @@
 #include "Hazel/Renderer/Renderer.h"
 
 #include "Hazel/Core/Input.h"
+#include "Hazel/Networking/Networking.h"
 
 #include <glfw/glfw3.h>
 
@@ -22,6 +23,7 @@ namespace Hazel {
 		m_Window = Window::Create();
 		m_Window->SetEventCallback(HZ_BIND_EVENT_FN(Application::OnEvent));
 
+		Networking::Init();
 		Renderer::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
@@ -33,6 +35,7 @@ namespace Hazel {
 		HZ_PROFILE_FUNCTION();
 
 		Renderer::Shutdown();
+		Networking::Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)
