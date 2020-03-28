@@ -7,7 +7,7 @@
 NetworkingLayer::NetworkingLayer() :
 	Layer("Networking")
 {
-	strcpy(m_Address, "91.67.152.132:1234");
+	strcpy_s(m_Address, "91.67.152.132:1234");
 }
 
 void NetworkingLayer::OnAttach()
@@ -57,7 +57,7 @@ void NetworkingLayer::OnImGuiRender()
 {
 	ImGui::Begin("Networking", 0, ImGuiWindowFlags_NoMove);
 
-	if (Hazel::Networking::IsConnected())
+	if (Hazel::Networking::CheckState(Hazel::Networking::ConnectedState))
 	{
 
 	}
@@ -71,7 +71,7 @@ void NetworkingLayer::OnImGuiRender()
 		{
 			Hazel::Networking::Server((enet_uint16)std::atoi(m_Address));
 
-			if (Hazel::Networking::IsConnected())
+			if (Hazel::Networking::CheckState(Hazel::Networking::ConnectedState))
 				m_Status = "Server ready.";
 		}
 
