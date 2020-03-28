@@ -16,3 +16,5 @@ bin-int/
 /Sandbox/HazelProfile-Shutdown.json
 /Sandbox/HazelProfile-Runtime.json
 *.lua
+/Sandbox/run.bat
+/Sandbox/imgui.ini
