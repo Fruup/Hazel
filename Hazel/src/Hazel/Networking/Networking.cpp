@@ -8,6 +8,8 @@ namespace Hazel
 {
 	Networking::NetworkingData Networking::s_Data;
 
+	inline NetClientInfo& GetPeerInfo(ENetPeer* peer) { return *((NetClientInfo*)peer->data); }
+
 	void* NetMalloc(size_t size)
 	{
 		return malloc(size);
@@ -22,8 +24,8 @@ namespace Hazel
 	{
 	}
 
-	NetPacket::NetPacket() :
-		m_Type(0), m_To(Invalid), m_From(Invalid) {}
+	/*NetPacket::NetPacket() :
+		m_Type(0), m_To(Invalid), m_From(Invalid) {}*/
 
 	NetPacket::NetPacket(const ENetPacket* packet)
 	{
@@ -32,9 +34,12 @@ namespace Hazel
 		m_From = *(ClientId*)(packet->data + sizeof(NetMsgType) + sizeof(ClientId));
 
 		// Copy data, if existent
-		m_StreamPointer = packet->dataLength - GetPackedSize();
-		if (m_StreamPointer > 0)
-			memcpy(m_Stream, packet->data, m_StreamPointer);
+		int dataLength = (signed)packet->dataLength - (signed)StreamStart;
+		if (dataLength > 0)
+		{
+			m_StreamPointer = dataLength;
+			memcpy(m_Stream, packet->data + StreamStart, m_StreamPointer);
+		}
 	}
 
 	NetPacket::NetPacket(NetMsgType type, ClientId to) :
@@ -48,6 +53,9 @@ namespace Hazel
 
 	void Networking::Init(bool reliablePackets)
 	{
+		if (CheckState(InitializedState))
+			return;
+
 		if (reliablePackets)
 			s_Data.PacketFlags |= ENET_PACKET_FLAG_RELIABLE;
 
@@ -58,15 +66,22 @@ namespace Hazel
 			HZ_CORE_ERROR("Failed to initialize enet module");
 			return;
 		}
+
+		SetState(InitializedState);
 	}
 
 	void Networking::Shutdown()
 	{
-		if (IsConnected())
-			Disconnect();
+		if (!CheckState(InitializedState))
+			return;
+
+		// Disconnect
+		Disconnect();
 		
 		// Deinit enet
 		enet_deinitialize();
+
+		UnsetState(InitializedState);
 	}
 
 	void Networking::OnEvent(Event& event)
@@ -75,87 +90,165 @@ namespace Hazel
 		{
 			// Start listening thread
 			ListenAsync();
-			s_Data.Thread = std::thread(ListenAsync);
 		}
 	}
 
-	void Networking::Server(const ENetAddress& serverAddress)
+	void Networking::Server(enet_uint16 port)
 	{
 		// Set server address
-		s_Data.ServerAddress = serverAddress;
+		s_Data.ServerAddress = NetAddress(ENET_HOST_ANY, port);
+
+		SetState(ServerState);
+		SetState(ConnectedState);
+		SetState(ReadyState);
 
 		// Create host
 		s_Data.Host = enet_host_create(s_Data.ServerAddress, NumClients, NumChannels, /* bandwidth */ 0, 0);
 
 		if (!s_Data.Host)
 		{
-			HZ_CORE_ERROR("Failed to create host ");
+			HZ_CORE_ERROR("Failed to create server host on port {0}", port);
+			return;
 		}
+
+		// Start listening
+		ListenAsync();
 	}
 
 	void Networking::Client(const ENetAddress& serverAddress, enet_uint32 timeout)
 	{
+		// Create client host
+		s_Data.Host = enet_host_create(nullptr, 1, NumChannels, 0, 0);
+		if (!s_Data.Host)
+		{
+			HZ_CORE_ERROR("Failed to create client host");
+			return;
+		}
+
 		// Set server address
 		s_Data.ServerAddress = serverAddress;
 
+		SetState(ClientState);
+
 		// Try connecting in different thread
-		s_Data.Thread = std::thread(ClientConnectAsync, timeout);
+		ClientConnectAsync(timeout);
 	}
 
-	void Networking::Disconnect()
+	void Networking::Disconnect(enet_uint32 timeout)
 	{
-		if (!IsConnected())
+		if (!CheckState(ConnectedState))
 			return;
 
 		// End thread and wait
-		s_Data.Listening = false;
-		s_Data.Thread.join();
+		UnsetState(ListeningState);
 
+		if (s_Data.Thread.joinable())
+			s_Data.Thread.join();
+
+		// Try soft disconnect from server
+		if (CheckState(ClientState))
+		{
+			bool acknowlegded = false;
+			ENetEvent event;
+
+			enet_peer_disconnect(s_Data.Peer, /* sent data */ 0);
+
+			/* Allow up to 3 seconds for the disconnect to succeed
+			 * and drop any packets received packets.
+			 */
+			while (enet_host_service(s_Data.Host, &event, timeout) > 0)
+			{
+				switch (event.type)
+				{
+					case ENET_EVENT_TYPE_RECEIVE:
+					{
+						enet_packet_destroy(event.packet);
+						break;
+					}
+					case ENET_EVENT_TYPE_DISCONNECT:
+					{
+						HZ_CORE_INFO("Successfully disconnected from server");
+
+						acknowlegded = true;
+
+						break;
+					}
+				}
+			}
+
+			// Forcefully reset peer if necessary
+			if (!acknowlegded)
+				enet_peer_reset(s_Data.Peer);
+		}
+		
 		// Destroy host
 		enet_host_destroy(s_Data.Host);
 
 		// Push event
 		Application::PushEvent(DisconnectedFromServerEvent());
 		
-		s_Data.SocketType = None;
+		s_Data.State = InitializedState;
 	}
 
 	void Networking::ClientConnectAsync(enet_uint32 timeout)
 	{
-		auto startTime = enet_time_get();
+		// Start thread
+		if (s_Data.Thread.joinable())
+			s_Data.Thread.join();
 
-		do
+		s_Data.Thread = std::thread(Networking::ClientConnectProc, timeout);
+	}
+
+	void Networking::ClientConnectProc(enet_uint32 timeout)
+	{
+		// Connect host
+		s_Data.Peer = enet_host_connect(s_Data.Host, s_Data.ServerAddress, NumChannels, /* data sent to server */ 0);
+
+		if (s_Data.Peer)
 		{
-			s_Data.Peer = enet_host_connect(s_Data.Host, s_Data.ServerAddress, NumChannels, /* data sent to server */ 0);
+			HZ_CORE_TRACE("Connecting to server {0}...", s_Data.ServerAddress.GetHostname());
 
-			if (s_Data.Peer)
+			// Try connecting
+			ENetEvent event;
+			while (enet_host_service(s_Data.Host, &event, timeout))
 			{
-				// Connected successfully
-				HZ_CORE_INFO("Successfully connected to server");
+				HZ_CORE_TRACE("Service: {0}", event.type);
 
-				// Push engine event to start listening on next occasion
-				QueueEngineEvent(new ConnectedToServerEvent());
-				return;
+				if (event.type == ENET_EVENT_TYPE_CONNECT)
+				{
+					// Connected successfully
+					HZ_CORE_INFO("Successfully connected to server {0}.", s_Data.ServerAddress.GetHostname());
+
+					// Set state
+					SetState(ConnectedState);
+
+					// Push engine event to start listening on next occasion
+					QueueEngineEvent(new ConnectedToServerEvent());
+					return;
+				}
 			}
 
-			// Otherwise wait and try again
-			else { std::this_thread::sleep_for(std::chrono::milliseconds(250)); }
+			// Not connected...
+			HZ_CORE_WARN("Server connection timeout ({0}ms)", timeout);
+		}
+		else
+		{
+			HZ_CORE_WARN("Unable to connect client host.");
+		}
 
-		} while (enet_time_get() - startTime < timeout);
-
-		// Not connected...
-		HZ_CORE_WARN("Server connection timeout ({0}ms)", timeout);
+		// Reset peer
+		enet_peer_reset(s_Data.Peer);
 	}
 
 	void Networking::ListenAsync()
 	{
 		// Start listen thread
-		s_Data.Listening = true;
+		SetState(ListeningState);
 
-		if (s_Data.SocketType == SocketTypeServer)
-			s_Data.Thread = std::thread(Networking::ListenServer);
-		else if (s_Data.SocketType == SocketTypeClient)
-			s_Data.Thread = std::thread(Networking::ListenClient);
+		if (s_Data.Thread.joinable())
+			s_Data.Thread.join();
+
+		s_Data.Thread = std::thread(Networking::ListenProc);
 	}
 
 	void Networking::QueuePacket(const NetPacket& packet, enet_uint8 channel, enet_uint32 additionalFlags)
@@ -171,7 +264,8 @@ namespace Hazel
 	void Networking::PushPackets()
 	{
 		// Flush packet queue
-		enet_host_flush(s_Data.Host);
+		if (s_Data.Host)
+			enet_host_flush(s_Data.Host);
 	}
 
 	void Networking::PushEngineEvents()
@@ -188,19 +282,26 @@ namespace Hazel
 		s_Data.EngineEventQueueMutex.unlock();
 	}
 
-	void Networking::ListenServer()
+	const NetClientInfo& Networking::FindClientInfo(ClientId id)
 	{
-		constexpr enet_uint32 timeout = 1000;
+		return s_Data.Clients[id];
+	}
+
+	void Networking::ListenProc()
+	{
+		constexpr enet_uint32 timeout = 100;
 		ENetEvent event;
 		int serviceResult;
 
-		while (s_Data.Listening)
+		while (CheckState(ListeningState))
 		{
+			// Process
 			serviceResult = enet_host_service(s_Data.Host, &event, timeout);
 
 			if (serviceResult < 0)
 			{
-				HZ_CORE_ERROR("Failed to listen for events on host {0}", s_Data.Host->address.host);
+				HZ_CORE_ERROR("Failed to listen for events on host {0}. Aborting listen process.", s_Data.Host->address.host);
+				return;
 			}
 			else if (serviceResult > 0)
 			{
@@ -208,20 +309,62 @@ namespace Hazel
 				{
 				case ENET_EVENT_TYPE_CONNECT:
 				{
+					HZ_CORE_TRACE("Connect id: ", event.peer->connectID);
+
+					// Setup
+					NetClientInfo* client = s_Data.Clients + event.peer->connectID;
+					client->Used = true;
+					client->Id = event.peer->connectID;
+					event.peer->data = client;
+
+					HZ_CORE_WARN("Client with ip {0} connected", client->Address.GetAddress());
+
+					// Queue event
+					//QueueEngineEvent(new PeerConnectedEvent(client));
+
+					// Send client info data
+					SendClientInformation(client->Id);
+
 					break;
 				}
 				case ENET_EVENT_TYPE_DISCONNECT:
 				{
+					// Delete client info
+					NetClientInfo* client = s_Data.Clients + event.peer->connectID;
+					client->Used = false;
+
+					HZ_CORE_WARN("Client with ip {0} disconnected", client->Address.GetAddress());
+
+					// Queue event
+					//QueueEngineEvent(new PeerDisconnectedEvent());
+
 					break;
 				}
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
-					NetPacket* packet = (NetPacket*)event.packet->data;
+					auto packet = std::make_shared<NetPacket>(event.packet);
 
-					HZ_CORE_WARN("Net message from {0} to {1} saying \"{2}\"", packet->GetSender(), packet->GetRecipient(), (char*)packet->GetStream());
+					// Check for client information data
+					if (CheckState(ClientState))
+					{
+						if (packet->GetType() == ClientInformationMsgType)
+						{
+							// Read data...
+
+							// Mark as ready
+							SetState(ReadyState);
+						}
+					}
+
+					// Queue event
+					QueueEngineEvent(new ReceivedNetMessageEvent(packet));
+
+					// Destroy packet
+					enet_packet_destroy(event.packet);
 
 					break;
 				}
+
 				default:
 					break;
 				}
@@ -229,14 +372,30 @@ namespace Hazel
 		}
 	}
 
-	void Networking::ListenClient()
-	{
-	}
-
 	void Networking::QueueEngineEvent(Event* event)
 	{
 		s_Data.EngineEventQueueMutex.lock();
 		s_Data.EngineEventQueue.push(Ref<Event>(event));
 		s_Data.EngineEventQueueMutex.unlock();
+	}
+
+	void Networking::SendClientInformation(ClientId recipient)
+	{
+		NetPacket packet(ClientInformationMsgType, recipient);
+
+		for (int i = 0; i < NumClients; i++)
+		{
+			const auto& client = s_Data.Clients[i];
+
+			if (client.Used)
+			{
+				// Serlialize client info
+				client.Serialize<100>();
+				client.Deserialize(0);
+			}
+		}
+
+		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
+		PushPackets();
 	}
 }

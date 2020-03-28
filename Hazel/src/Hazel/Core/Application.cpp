@@ -23,8 +23,8 @@ namespace Hazel {
 		m_Window = Window::Create();
 		m_Window->SetEventCallback(HZ_BIND_EVENT_FN(Application::OnEvent));
 
-		Networking::Init();
 		Renderer::Init();
+		Networking::Init();
 
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
@@ -34,8 +34,8 @@ namespace Hazel {
 	{
 		HZ_PROFILE_FUNCTION();
 
-		Renderer::Shutdown();
 		Networking::Shutdown();
+		Renderer::Shutdown();
 	}
 
 	void Application::PushLayer(Layer* layer)
@@ -87,6 +87,12 @@ namespace Hazel {
 			if (!m_Minimized)
 			{
 				{
+					HZ_PROFILE_SCOPE("Networking Event Processing");
+
+					Networking::PushEngineEvents();
+				}
+
+				{
 					HZ_PROFILE_SCOPE("LayerStack OnUpdate");
 
 					for (Layer* layer : m_LayerStack)
@@ -101,6 +107,12 @@ namespace Hazel {
 						layer->OnImGuiRender();
 				}
 				m_ImGuiLayer->End();
+			}
+
+			{
+				HZ_PROFILE_SCOPE("Networking Push Packets");
+
+				Networking::PushPackets();
 			}
 
 			m_Window->OnUpdate();

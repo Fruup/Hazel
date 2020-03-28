@@ -19,7 +19,8 @@ namespace Hazel {
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
 
 		ConnectedToServer, DisconnectedFromServer,
-		ClientConnected, ClientDisconnected
+		ClientConnected, ClientDisconnected,
+		ReceivedNetMessage
 	};
 
 	enum EventCategory

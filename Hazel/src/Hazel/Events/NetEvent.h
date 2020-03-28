@@ -39,4 +39,16 @@ namespace Hazel
 		DisconnectedFromServerEvent() = default;
 		EVENT_CLASS_TYPE(DisconnectedFromServer)
 	};
+
+	class ReceivedNetMessageEvent : public NetEvent
+	{
+	public:
+		ReceivedNetMessageEvent(const Ref<NetPacket>& packet) :
+			m_Packet(packet) {}
+
+		EVENT_CLASS_TYPE(ReceivedNetMessage)
+
+	private:
+		Ref<NetPacket> m_Packet;
+	};
 }
