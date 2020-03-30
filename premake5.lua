@@ -98,7 +98,7 @@ project "Hazel"
 		}
 
 	filter "configurations:Debug"
-		defines "HZ_DEBUG"
+		defines { "HZ_DEBUG", "ENET_DEBUG" }
 		runtime "Debug"
 		symbols "on"
 
