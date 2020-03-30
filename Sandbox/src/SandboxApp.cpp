@@ -5,6 +5,8 @@
 #include "ExampleLayer.h"
 #include "NetworkingLayer.h"
 
+#include <GLFW/include/GLFW/glfw3.h>
+
 class Sandbox : public Hazel::Application
 {
 public:
@@ -13,6 +15,8 @@ public:
 		//PushLayer(new ExampleLayer());
 		//PushLayer(new Sandbox2D());
 		PushLayer(new NetworkingLayer());
+
+		//glfwHideWindow((GLFWwindow*)GetWindow().GetNativeWindow());
 	}
 
 	~Sandbox()

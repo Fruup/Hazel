@@ -2,6 +2,15 @@
 
 #include <Hazel.h>
 
+#include <Hazel/Core/Serialize.h>
+
+struct SomeData : public Hazel::Serializable<2>
+{
+	SomeData() : Serializable(x, y) {}
+
+	float x = 0.0f, y = 0.0f;
+};
+
 class NetworkingLayer : public Hazel::Layer
 {
 public:
@@ -19,4 +28,6 @@ public:
 private:
 	char m_Address[32];
 	std::string m_Status = "idle";
+
+	SomeData m_Data;
 };
