@@ -43,12 +43,14 @@ namespace Hazel
 	class ReceivedNetMessageEvent : public NetEvent
 	{
 	public:
-		ReceivedNetMessageEvent(const Ref<NetPacket>& packet) :
+		ReceivedNetMessageEvent(const Ref<BaseNetPacket>& packet) :
 			m_Packet(packet) {}
+
+		inline const Ref<BaseNetPacket>& GetPacket() const { return m_Packet; }
 
 		EVENT_CLASS_TYPE(ReceivedNetMessage)
 
 	private:
-		Ref<NetPacket> m_Packet;
+		Ref<BaseNetPacket> m_Packet;
 	};
 }

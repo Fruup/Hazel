@@ -2,158 +2,74 @@
 
 #include <enet/enet.h>
 #include <queue>
+#include <unordered_map>
+
+#include "Hazel/Networking/NetworkingDefs.h"
+#include "Hazel/Networking/NetAddress.h"
+#include "Hazel/Networking/NetPacket.h"
 
 #include "Hazel/Events/Event.h"
-
 #include "Hazel/Core/Serialize.h"
 
 namespace Hazel
 {
-	using ClientId = long;
-	using NetMsgType = enet_uint32;
-
-	enum ClientIdSpecifiers : ClientId
-	{
-		All = -10000,	// TODO: min number, i'm too dumb right now
-		Server,
-		Invalid = -1
-	};
-
-	enum
-	{
-		ServerInformationMsgType = 0xf0000000ui32,
-		ClientInformationMsgType
-	};
-
-	class NetAddress
-	{
-	public:
-		NetAddress() = default;
-
-		inline NetAddress(enet_uint32 host, enet_uint16 port) :
-			NetAddress(ENetAddress({ host, port })) {}
-
-		NetAddress(const ENetAddress& address) :
-			m_InternalAddress(address)
-		{
-			enet_address_get_host(&address, m_Hostname, 32);
-			enet_address_get_host_ip(&address, m_Address, 32);
-		}
-
-		NetAddress(const std::string& address)
-		{
-			// Copy full string
-			strcpy_s(m_Address, address.c_str());
-
-			// Split into ip and port
-			size_t m = address.find_first_of(':');
-
-			std::string ip = address.substr(0, m);
-			std::string port = address.substr(m + 1);
-
-			// Set ip and port
-			enet_address_set_host_ip(&m_InternalAddress, ip.c_str());
-			m_InternalAddress.port = (enet_uint32)std::stoi(port);
-
-			enet_address_get_host(&m_InternalAddress, m_Hostname, 32);
-		}
-
-		inline const char* GetHostname() const { return m_Hostname; }
-		inline const char* GetAddress() const { return m_Address; }
-		inline operator const ENetAddress& () const { return m_InternalAddress; }
-		inline operator const ENetAddress* () const { return &m_InternalAddress; }
-		inline const ENetAddress* operator -> () { return &m_InternalAddress; }
-
-	private:
-		char m_Hostname[32];
-		char m_Address[32];
-
-		ENetAddress m_InternalAddress;
-	};
-
-	struct NetClientInfo : public Serializable<3>
-	{
-		NetClientInfo() :
-			Serializable(Id, Version, Name)
-		{
-		}
-
-		ClientId Id = -1;
-		bool Used = false;
-
-		ENetPeer* Peer = nullptr;
-		enet_uint32 Version;
-		std::string Name;
-		NetAddress Address;
-
-		void* UserData = nullptr;
-	};
-
-	class NetPacket
-	{
-	public:
-		NetPacket() = delete;
-		NetPacket(const NetPacket&) = delete;
-		NetPacket(const NetPacket&&) = delete;
-
-		NetPacket(const ENetPacket* packet);
-		NetPacket(NetMsgType type, ClientId to);
-		NetPacket(void* data, size_t size, NetMsgType type, ClientId to);
-
-		template <typename T>
-		inline void Push(const T& data) { Push(&data, sizeof(T)); }
-		
-		void Push(void* data, size_t size)
-		{
-			HZ_CORE_ASSERT(GetHeadroom() >= size, "Packet size not sufficient!");
-			memcpy(m_Stream + m_StreamPointer, data, size);
-			m_StreamPointer += size;
-		}
-
-		size_t GetPackedSize() const { return sizeof(enet_uint16) + sizeof(NetMsgType) + sizeof(ClientId) + m_StreamPointer; }
-		inline size_t GetHeadroom() const { return StreamSize - m_StreamPointer; }
-		inline void* GetPackedData() const { return (void*)this; }
-		inline NetMsgType GetType() const { return m_Type; }
-		inline ClientId GetRecipient() const { return m_To; }
-		inline ClientId GetSender() const { return m_From; }
-		inline const enet_uint8* GetStream() const { return m_Stream; }
-		inline size_t GetStreamPointer() const { return m_StreamPointer; }
-
-		static constexpr int StreamSize = 128;
-		static constexpr size_t StreamStart = sizeof(ClientId) * 2 + sizeof(NetMsgType);
-
-	private:
-		NetMsgType m_Type;
-		ClientId m_To, m_From;
-
-		enet_uint8 m_Stream[StreamSize];
-		size_t m_StreamPointer = 0;
-	};
-
 	class Networking
 	{
 	public:
-		static constexpr int NumClients = 8;
-		static constexpr int NumChannels = 2;
-
-		enum NetworkingState
+		class Server
 		{
-			None				= 0,
-			InitializedState	= BIT(1),
-			ClientState			= BIT(2),
-			ServerState			= BIT(3),
-			ListeningState		= BIT(4),
-			ConnectedState		= BIT(5),
-			ReadyState			= BIT(6)
+			friend Networking;
+		public:
+			static void Start(uint16_t numClients, enet_uint16 port);
+			static void Stop();
+		private:
+			static void ServerProc();
+
+			static void LoadBanList();
+			static void RejectClient(ENetPeer* peer, NetDisconnectReasons reason);
+
+			static void CleanUp();
+
+			Server() = default;
 		};
+
+		class Client
+		{
+			friend Networking;
+		public:
+			static void Connect(const NetAddress& serverAddress, enet_uint32 timeout);
+			static void Disconnect(int32_t timeout = 2000, NetDisconnectReasons reason = NetDisconnectReasons::None);
+		private:
+			static void ClientProc(enet_uint32 connectTimeout);
+
+			static bool ConnectProc(enet_uint32 timeout);
+			static bool WaitForServerInfoProc(int32_t timeout);
+			static bool ListenProc();
+
+			static void CleanUp();
+
+			Client() = default;
+		};
+
+		friend Server;
+		friend Client;
+
+	public:
+		static constexpr int NumChannels = 2;
 
 		struct NetworkingData
 		{
-			enet_uint32 State = None;
+			NetState State = NetState::Disconnected;
 			
-			NetClientInfo Clients[NumClients];
+			bool Initialized = false;
+			bool IsServer = false;
 
-			ClientId ClientId = Invalid;
+			NetVersion Version = 0;
+
+			uint16_t MaxClients;
+			std::unordered_map<ClientId::Type, NetClientInfo> Clients;
+
+			ClientId::Type ThisClientId = ClientId::Invalid;
 
 			NetAddress ServerAddress;
 
@@ -166,6 +82,8 @@ namespace Hazel
 
 			std::queue<Ref<Event>> EngineEventQueue;
 			std::mutex EngineEventQueueMutex;
+
+			std::vector<enet_uint32> BanList;
 		};
 
 	public:
@@ -174,35 +92,73 @@ namespace Hazel
 
 		static void OnEvent(Event& event);
 
-		static void Server(enet_uint16 port);
-		static void Client(const ENetAddress& serverAddress, enet_uint32 timeout);
-		
-		static void Disconnect(enet_uint32 timeout = 2000);
+		template <uint32_t MaxSize>
+		static void QueuePacket(NetPacket<MaxSize>& packet, enet_uint8 channel = 0, enet_uint32 additionalFlags = 0)
+		{
+			// Set packet sender
+			packet.m_From = s_Data.ThisClientId;
 
-		static void QueuePacket(const NetPacket& packet, enet_uint8 channel = 0, enet_uint32 additionalFlags = 0);
+			// Set peer
+			ENetPeer* peer = s_Data.Peer;
+
+			if (IsServer())
+			{
+				HZ_CORE_ASSERT(packet.GetRecipient() != ClientId::Server, "Server can not send to itself");
+				peer = s_Data.Clients[packet.GetRecipient()].Peer;
+			}
+
+			// Send
+			auto enetpacket = enet_packet_create(packet.GetPackedData(), packet.GetPackedSize(), s_Data.PacketFlags | additionalFlags);
+
+			if (packet.GetRecipient() == ClientId::All)
+				enet_host_broadcast(s_Data.Host, channel, enetpacket);
+			else
+			{
+				if (enet_peer_send(peer, channel, enetpacket))
+					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}", packet.GetPackedSize(), packet.GetType());
+			}
+		}
+
 		static void PushPackets();
 
 		static void PushEngineEvents();
 
-		static const NetClientInfo& FindClientInfo(ClientId id);
+		static NetClientInfo* FindClientById(ClientId::Type id);
+		static NetClientInfo* FindClientByPeer(ENetPeer* peer);
 
-		inline static bool CheckState(NetworkingState s) { return s_Data.State & s; }
+		inline static bool IsInitialized() { return s_Data.Initialized; }
+		inline static bool IsServer() { return s_Data.IsServer; }
+		inline static bool IsClient() { return !IsServer(); }
+
+		inline static bool IsConnected() { return s_Data.State == NetState::Connected; }
+		inline static bool IsReady() { return IsConnected(); }
+
+		inline static bool IsServerFull() { return GetNumClients() == s_Data.MaxClients; }
 		
+		inline static bool IsBanned(enet_uint32 ip) { return std::find(s_Data.BanList.begin(), s_Data.BanList.end(), ip) != s_Data.BanList.end(); }
+
+		inline static size_t GetNumClients() { return s_Data.Clients.size(); }
+		inline static NetState GetState() { return s_Data.State; }
+
+		static const char* GetStateString();
+
 		inline static const NetworkingData& GetData() { return s_Data; }
+
+
+		inline static void SetVersion(NetVersion version) { s_Data.Version = version; }
 
 	private:
 		Networking() = default;
 
-		static void ListenAsync();
-		static void ListenProc();
-		static void ClientConnectAsync(enet_uint32 timeout);
-		static void ClientConnectProc(enet_uint32 timeout);
 		static void QueueEngineEvent(Event* event);
 
-		static void SendClientInformation(ClientId recipient);
+		static void SendServerInformation(ClientId::Type recipient);
+		static void RecvServerInformation(MemoryType* data, uint32_t size);
 
-		inline static void SetState(NetworkingState s) { s_Data.State |= s; }
-		inline static void UnsetState(NetworkingState s) { s_Data.State ^= s; }
+		static void SendClientConnectedMsg(ClientId::Type id);
+		static void SendClientDisconnectedMsg(ClientId::Type id);
+
+		static void SendServerDisconnectedMsg();
 
 		static NetworkingData s_Data;
 	};
