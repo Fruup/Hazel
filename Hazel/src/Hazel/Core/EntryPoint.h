@@ -13,6 +13,10 @@ int main(int argc, char** argv)
 	auto app = Hazel::CreateApplication();
 	HZ_PROFILE_END_SESSION();
 
+	app->m_CommandLineArgs.reserve(argc);
+	for (int i = 0; i < argc; i++)
+		app->m_CommandLineArgs.push_back(std::string(argv[i]));
+
 	HZ_PROFILE_BEGIN_SESSION("Runtime", "HazelProfile-Runtime.json");
 	app->Run();
 	HZ_PROFILE_END_SESSION();
