@@ -27,7 +27,6 @@ public:
 
 private:
 	char m_Address[32];
-	std::string m_Status = "idle";
 
 	SomeData m_Data;
 };

@@ -37,16 +37,7 @@ void NetworkingLayer::OnUpdate(Hazel::Timestep time)
 
 void NetworkingLayer::OnEvent(Hazel::Event& event)
 {
-	if (event.GetEventType() == Hazel::ConnectedToServerEvent::GetStaticType())
-	{
-		m_Status = "Connected.";
-	}
-	else if (event.GetEventType() == Hazel::DisconnectedFromServerEvent::GetStaticType())
-	{
-		m_Status = "idle";
-	}
-
-	else if (event.GetEventType() == Hazel::ReceivedNetMessageEvent::GetStaticType())
+	if (event.GetEventType() == Hazel::ReceivedNetMessageEvent::GetStaticType())
 	{
 		auto e = dynamic_cast<Hazel::ReceivedNetMessageEvent*>(&event);
 		m_Data.Deserialize((Hazel::MemoryType*)e->GetPacket()->GetData());
@@ -103,17 +94,11 @@ void NetworkingLayer::OnImGuiRender()
 				port = Hazel::NetAddress(m_Address)->port;
 			else port = (enet_uint16)std::atoi(m_Address);
 
-			Hazel::Networking::Server::Start(2, port);
-
-			if (Hazel::Networking::IsConnected())
-				m_Status = "Server ready.";
+			Hazel::Networking::Server::Start(1, port);
 		}
 
 		if (ImGui::Button("Connect to server"))
-		{
-			Hazel::Networking::Client::Connect(Hazel::NetAddress(m_Address), 3000);
-			m_Status = "Connecting to server...";
-		}
+			Hazel::Networking::Client::Connect(m_Address, 3000);
 
 		ImGui::Text("Status:");
 		ImGui::Text(Hazel::Networking::GetStateString());
