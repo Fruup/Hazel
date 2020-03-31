@@ -27,6 +27,9 @@ namespace Hazel
 			enet_address_get_host_ip(&address, m_Address, 32);
 		}
 
+		inline NetAddress(const char* address) :
+			NetAddress(std::string(address)) {}
+
 		NetAddress(const std::string& address)
 		{
 			// Copy full string

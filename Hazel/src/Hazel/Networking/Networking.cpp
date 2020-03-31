@@ -83,10 +83,6 @@ namespace Hazel
 		s_Data.Initialized = false;
 	}
 
-	void Networking::OnEvent(Event& event)
-	{
-	}
-
 	void Networking::PushPackets()
 	{
 		// Flush packet queue
@@ -128,13 +124,25 @@ namespace Hazel
 	{
 		switch (s_Data.State)
 		{
-		case NetState::Connected: return "Connected.";
+		case NetState::Connected: return "Connected, ready for use.";
 		case NetState::Connecting: return "Connecting.";
 		case NetState::Disconnected: return "Disconnected.";
 		case NetState::Disconnecting: return "Disconnecting.";
 		case NetState::WaitingForServerInfo: return "Waiting for server info...";
 		}
 
+		return nullptr;
+	}
+
+	const char* Networking::GetDisconnectReasonString(NetDisconnectReasons r)
+	{
+		switch (r)
+		{
+		case NetDisconnectReasons::None: return "None";
+		case NetDisconnectReasons::Banned: return "Banned from server";
+		case NetDisconnectReasons::ServerFull: return "Server full";
+		case NetDisconnectReasons::VersionMismatch: return "Version mismatch";
+		}
 		return nullptr;
 	}
 
@@ -176,14 +184,14 @@ namespace Hazel
 		while (offset < size)
 		{
 			offset += client.Deserialize(data + offset);
-			s_Data.Clients[client.Id] = client;
+			*AddClient(client.Id) = client;
 		}
 	}
 
 	void Networking::SendClientConnectedMsg(ClientId::Type id)
 	{
 		NetPacket<64> packet(NetMsgType::ClientConnected, ClientId::All);
-		packet.Push(s_Data.Clients[id]);
+		packet.Push(s_Data.Clients.at(id));
 
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 	}
@@ -202,5 +210,17 @@ namespace Hazel
 
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 		PushPackets();
+	}
+
+	NetClientInfo* Networking::AddClient(ClientId::Type id)
+	{
+		HZ_CORE_ASSERT(FindClientById(id) == nullptr, "Client with id {0} already in use!", id);
+		return &s_Data.Clients[id];
+	}
+
+	void Networking::RemoveClient(ClientId::Type id)
+	{
+		HZ_CORE_ASSERT(FindClientById(id) != nullptr, "Client with id {0} not found!", id);
+		s_Data.Clients.erase(id);
 	}
 }

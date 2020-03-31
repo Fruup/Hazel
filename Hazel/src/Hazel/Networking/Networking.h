@@ -59,30 +59,21 @@ namespace Hazel
 
 		struct NetworkingData
 		{
-			NetState State = NetState::Disconnected;
-			
+		public:
+			NetState State = NetState::Disconnected;			
 			bool Initialized = false;
 			bool IsServer = false;
-
 			NetVersion Version = 0;
-
-			uint16_t MaxClients;
+			uint16_t MaxClients = 0;
 			std::unordered_map<ClientId::Type, NetClientInfo> Clients;
-
 			ClientId::Type ThisClientId = ClientId::Invalid;
-
 			NetAddress ServerAddress;
-
 			enet_uint32 PacketFlags = 0;
-
 			ENetHost* Host = nullptr;
 			ENetPeer* Peer = nullptr;
-
 			std::thread Thread;
-
 			std::queue<Ref<Event>> EngineEventQueue;
 			std::mutex EngineEventQueueMutex;
-
 			std::vector<enet_uint32> BanList;
 		};
 
@@ -90,32 +81,28 @@ namespace Hazel
 		static void Init(bool reliablePackets = false);
 		static void Shutdown();
 
-		static void OnEvent(Event& event);
-
 		template <uint32_t MaxSize>
 		static void QueuePacket(NetPacket<MaxSize>& packet, enet_uint8 channel = 0, enet_uint32 additionalFlags = 0)
 		{
 			// Set packet sender
-			packet.m_From = s_Data.ThisClientId;
+			if (packet.GetSender() == ClientId::Invalid)
+				packet.m_From = s_Data.ThisClientId;
 
-			// Set peer
-			ENetPeer* peer = s_Data.Peer;
-
-			if (IsServer())
-			{
-				HZ_CORE_ASSERT(packet.GetRecipient() != ClientId::Server, "Server can not send to itself");
-				peer = s_Data.Clients[packet.GetRecipient()].Peer;
-			}
-
-			// Send
+			// Create packet
 			auto enetpacket = enet_packet_create(packet.GetPackedData(), packet.GetPackedSize(), s_Data.PacketFlags | additionalFlags);
 
-			if (packet.GetRecipient() == ClientId::All)
-				enet_host_broadcast(s_Data.Host, channel, enetpacket);
+			// Send packet
+			if (IsServer())
+			{
+				if (packet.GetRecipient() == ClientId::All)
+					enet_host_broadcast(s_Data.Host, channel, enetpacket);
+				else if (enet_peer_send(s_Data.Clients.at(packet.GetRecipient()).Peer, channel, enetpacket))
+					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
+			}
 			else
 			{
-				if (enet_peer_send(peer, channel, enetpacket))
-					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}", packet.GetPackedSize(), packet.GetType());
+				if (enet_peer_send(s_Data.Peer, channel, enetpacket))
+					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
 			}
 		}
 
@@ -141,6 +128,7 @@ namespace Hazel
 		inline static NetState GetState() { return s_Data.State; }
 
 		static const char* GetStateString();
+		static const char* GetDisconnectReasonString(NetDisconnectReasons r);
 
 		inline static const NetworkingData& GetData() { return s_Data; }
 
@@ -159,6 +147,9 @@ namespace Hazel
 		static void SendClientDisconnectedMsg(ClientId::Type id);
 
 		static void SendServerDisconnectedMsg();
+
+		static NetClientInfo* AddClient(ClientId::Type id);
+		static void RemoveClient(ClientId::Type id);
 
 		static NetworkingData s_Data;
 	};

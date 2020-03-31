@@ -11,30 +11,33 @@ namespace Hazel
 		// Reserve space for clients
 		s_Data.MaxClients = numClients;
 		s_Data.Clients.reserve(numClients);
-
 		
 		// Set stuff
 		s_Data.ServerAddress = NetAddress(ENET_HOST_ANY, port);
 		s_Data.IsServer = true;
 		s_Data.ThisClientId = ClientId::Server;
-		s_Data.State = NetState::Ready;
+		s_Data.Peer = nullptr;
 
 		// Create host
-		s_Data.Host = enet_host_create(s_Data.ServerAddress, numClients, NumChannels, /* bandwidth */ 0, 0);
-
+		/* Handle one client more than needed to be able to reject it in case of a full server */
+		s_Data.Host = enet_host_create(s_Data.ServerAddress, numClients + 1, NumChannels, /* bandwidth */ 0, 0);
 		if (!s_Data.Host)
 		{
-			HZ_CORE_ERROR("Failed to create server host on port {0}", port);
+			HZ_CORE_ERROR("Failed to create server host on port {0}!", port);
 			return;
 		}
 
-		// Start listening in different thread
-		//HZ_CORE_ASSERT(!s_Data.Thread.joinable(), "Networking thread is already in use!");
+		// Set state
+		s_Data.State = NetState::Ready;
 
+		// Start listening in different thread
 		if (s_Data.Thread.joinable())
 			s_Data.Thread.join();
 
 		s_Data.Thread = std::thread(ServerProc);
+
+
+		HZ_CORE_INFO("Started server on port {0} for {1} clients.", port, numClients);
 	}
 
 	void Networking::Server::Stop()
@@ -57,7 +60,8 @@ namespace Hazel
 
 	void Networking::Server::ServerProc()
 	{
-		const enet_uint32 timeout = 16 / (enet_uint32)(Networking::GetNumClients() > 0 ? Networking::GetNumClients() : 1);
+		const enet_uint32 timeout = 16;
+		//const enet_uint32 timeout = 16 / (enet_uint32)(Networking::GetNumClients() > 0 ? Networking::GetNumClients() : 1);
 		int32_t sleepTime, startTime = 0;
 		ENetEvent event;
 		int serviceResult;
@@ -107,7 +111,7 @@ namespace Hazel
 							HZ_CORE_ASSERT(FindClientById(clientId) == nullptr, "Client id already in use!");
 
 							// Create new client
-							NetClientInfo& client = s_Data.Clients[clientId];
+							NetClientInfo& client = *AddClient(clientId);
 
 							client.Id = clientId;
 							client.Peer = event.peer;
@@ -136,11 +140,9 @@ namespace Hazel
 						const NetClientInfo& client = *FindClientByPeer(event.peer);
 						auto reason = event.data;
 
-						//HZ_CORE_ASSERT(s_Data.Clients.find(clientId) != s_Data.Clients.end(), "Client id not found!");
-
 						HZ_CORE_WARN("Client \"{0}\" ({1}) with ip {2} disconnected for reason {3}", client.Address.GetHostname(), client.Id, client.Address.GetAddress(), reason);
 
-						s_Data.Clients.erase(client.Id);
+						RemoveClient(client.Id);
 
 						// Queue event
 						//QueueEngineEvent(new PeerDisconnectedEvent());
@@ -154,11 +156,18 @@ namespace Hazel
 					{
 						auto packet = std::make_shared<NetPacket<64>>(event.packet);
 
-						// Queue event
-						//QueueEngineEvent(new ReceivedNetMessageEvent(packet));
-
 						// Destroy packet
 						enet_packet_destroy(event.packet);
+
+						// Forward packet to recipient if necessary
+						if (packet->GetRecipient() != ClientId::Server)
+						{
+							QueuePacket(*packet, 0, event.packet->flags);
+							PushPackets();
+						}
+
+						// Queue event
+						//QueueEngineEvent(new ReceivedNetMessageEvent(packet));
 
 						break;
 					}
@@ -183,6 +192,7 @@ namespace Hazel
 	{
 		// Delete clients
 		s_Data.Clients.clear();
+		s_Data.MaxClients = 0;
 
 		// Destroy host
 		if (s_Data.Host)
@@ -197,6 +207,8 @@ namespace Hazel
 
 	void Networking::Server::LoadBanList()
 	{
+		s_Data.BanList.clear();
+
 		/*const FileAsset& banlist = Application::GetAssetsDirectory().Find("banlist.txt");
 		if (banlist)
 		{

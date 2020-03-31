@@ -15,8 +15,6 @@ namespace Hazel
 		s_Data.State = NetState::Connecting;
 
 		// Try connecting in different thread
-		//HZ_CORE_ASSERT(!s_Data.Thread.joinable(), "Networking thread is already in use!");
-
 		if (s_Data.Thread.joinable())
 			s_Data.Thread.join();
 
@@ -52,9 +50,7 @@ namespace Hazel
 
 				enet_peer_disconnect(s_Data.Peer, (enet_uint32)reason);
 
-				/* Allow up to <timeout> milliseconds for the disconnect to succeed
-					* and drop any packets received packets.
-					*/
+				// Allow up to <timeout> milliseconds for the disconnect to succeed and drop any packets received
 				auto startTime = enet_time_get();
 				int32_t timeLeft = timeout;
 				int result;
@@ -96,6 +92,7 @@ namespace Hazel
 
 	void Networking::Client::ClientProc(enet_uint32 connectTimeout)
 	{
+		// First connect, then retrieve server info, then start listening
 		enet_uint32 startTime = enet_time_get();
 
 		if (ConnectProc(connectTimeout))
@@ -111,25 +108,13 @@ namespace Hazel
 		s_Data.State = NetState::Disconnected;
 
 		// Error while connecting or while waiting for server info, OR the server sent a disconnect msg
-		/*if (s_Data.Peer)
-		{
-			enet_peer_reset(s_Data.Peer);
-			s_Data.Peer = nullptr;
-		}
-
-		if (s_Data.Host)
-		{
-			enet_host_destroy(s_Data.Host);
-			s_Data.Host = nullptr;
-		}*/
-
 		CleanUp();
 	}
 
 	bool Networking::Client::ConnectProc(enet_uint32 timeout)
 	{
 		// Create client host
-		HZ_CORE_ASSERT(s_Data.Host == nullptr, "Host already in use");
+		HZ_CORE_ASSERT(s_Data.Host == nullptr, "Host already in use!");
 
 		s_Data.Host = enet_host_create(nullptr, 1, NumChannels, 0, 0);
 		if (!s_Data.Host)
@@ -159,7 +144,7 @@ namespace Hazel
 				if (event.type == ENET_EVENT_TYPE_CONNECT)
 				{
 					// Connected successfully
-					HZ_CORE_INFO("Successfully connected to server {0}.", s_Data.ServerAddress.GetHostname());
+					HZ_CORE_INFO("Successfully connected to server {0}. Waiting for server info data...", s_Data.ServerAddress.GetHostname());
 
 					// Set client id
 					s_Data.ThisClientId = s_Data.Peer->connectID;
@@ -181,8 +166,7 @@ namespace Hazel
 			// Not connected...
 			HZ_CORE_WARN("Server connection timeout ({0}ms)", timeout);
 		}
-
-		HZ_CORE_WARN("Unable to connect client host.");
+		else HZ_CORE_WARN("Unable to connect client host.");
 
 		return false;
 	}
@@ -204,10 +188,8 @@ namespace Hazel
 					// The client has been disconnected from the server
 					NetDisconnectReasons reason = (NetDisconnectReasons)event.data;
 
-					// ...
-
+					HZ_CORE_WARN("The client was disconnected. Reason: {0}.", GetDisconnectReasonString(reason));
 					return false;
-					//break;
 				}
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
@@ -225,6 +207,7 @@ namespace Hazel
 						// Set state and start listening loop
 						s_Data.State = NetState::Ready;
 
+						HZ_CORE_INFO("Successfully retrieved server information data. Client ready.");
 						return true;
 					}
 
@@ -271,8 +254,9 @@ namespace Hazel
 					}
 					case ENET_EVENT_TYPE_DISCONNECT:
 					{
-						HZ_CORE_CRITICAL("CLIENT: ENET_EVENT_TYPE_DISCONNECT");
-						break;
+						// The server disconnected
+						HZ_CORE_WARN("The server connection timed out.");
+						return false;
 					}
 					case ENET_EVENT_TYPE_RECEIVE:
 					{
@@ -281,6 +265,9 @@ namespace Hazel
 						// Destroy packet
 						enet_packet_destroy(event.packet);
 
+						// Ignore own packets
+						if (packet->GetSender() == s_Data.ThisClientId)
+							break;
 
 						// Handle event engine side
 						if (packet->GetType() == NetMsgType::ClientConnected)
@@ -292,18 +279,18 @@ namespace Hazel
 							if (newClient.Id != s_Data.ThisClientId)
 							{
 								// Add new client
-								s_Data.Clients[newClient.Id] = newClient;
+								*AddClient(newClient.Id) = newClient;
 
 								// Queue event
 								//QueueEngineEvent(new NetClientConnected());
 							}
 						}
-						if (packet->GetType() == NetMsgType::ClientDisconnected)
+						else if (packet->GetType() == NetMsgType::ClientDisconnected)
 						{
 							// Delete client
-							s_Data.Clients.erase(*(ClientId::Type*)packet->GetData());
+							RemoveClient(*(ClientId::Type*)packet->GetData());
 						}
-						if (packet->GetType() == NetMsgType::ServerDisconnected)
+						else if (packet->GetType() == NetMsgType::ServerDisconnected)
 						{
 							// Destroy packet
 							packet = nullptr;
@@ -340,6 +327,7 @@ namespace Hazel
 
 		// Delete clients
 		s_Data.Clients.clear();
+		s_Data.MaxClients = 0;
 
 		// Destroy peer
 		if (s_Data.Peer)
