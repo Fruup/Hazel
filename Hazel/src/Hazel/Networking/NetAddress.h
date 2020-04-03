@@ -8,7 +8,12 @@ namespace Hazel
 	class NetAddress
 	{
 	public:
-		NetAddress() = default;
+		NetAddress() :
+			m_InternalAddress({ 0, 0 }),
+			m_Hostname("empty"),
+			m_Address("empty")
+		{
+		}
 
 		NetAddress(const NetAddress& b) :
 			m_InternalAddress(b.m_InternalAddress)

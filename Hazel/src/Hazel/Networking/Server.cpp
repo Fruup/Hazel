@@ -1,22 +1,14 @@
 #include "hzpch.h"
 #include "Networking.h"
 
+#include "Hazel/Events/NetEvent.h"
+
 namespace Hazel
 {
 	void Networking::Server::Start(uint16_t numClients, enet_uint16 port)
 	{
-		// Load ban list
-		LoadBanList();
-
-		// Reserve space for clients
-		s_Data.MaxClients = numClients;
-		s_Data.Clients.reserve(numClients);
-		
-		// Set stuff
+		// Set server address
 		s_Data.ServerAddress = NetAddress(ENET_HOST_ANY, port);
-		s_Data.IsServer = true;
-		s_Data.ThisClientId = ClientId::Server;
-		s_Data.Peer = nullptr;
 
 		// Create host
 		/* Handle one client more than needed to be able to reject it in case of a full server */
@@ -27,8 +19,29 @@ namespace Hazel
 			return;
 		}
 
+		// Load ban list
+		LoadBanList();
+
+		// Reserve space for client and server information
+		s_Data.MaxPeers = numClients + 1;
+		s_Data.Peers.reserve(s_Data.MaxPeers);
+
+		// Set stuff
+		s_Data.IsServer = true;
+		s_Data.ThisPeerId = PeerId::Server;
+		s_Data.Peer = nullptr;
+
+		// Add client info for server
+		NetPeerInfo& info = *AddPeer(PeerId::Server);
+		info.Address = s_Data.ServerAddress;
+		info.Name = "Server";
+		info.Version = s_Data.Version;
+
 		// Set state
 		s_Data.State = NetState::Ready;
+
+		// Queue event
+		QueueEngineEvent(new PeerConnectedEvent(info));
 
 		// Start listening in different thread
 		if (s_Data.Thread.joinable())
@@ -60,8 +73,8 @@ namespace Hazel
 
 	void Networking::Server::ServerProc()
 	{
-		const enet_uint32 timeout = 16;
-		//const enet_uint32 timeout = 16 / (enet_uint32)(Networking::GetNumClients() > 0 ? Networking::GetNumClients() : 1);
+		//const enet_uint32 timeout = 16;
+		const enet_uint32 timeout = 16 / (enet_uint32)(Networking::GetNumClients() > 0 ? Networking::GetNumClients() : 1);
 		int32_t sleepTime, startTime = 0;
 		ENetEvent event;
 		int serviceResult;
@@ -106,12 +119,9 @@ namespace Hazel
 
 						else
 						{
-							// Accept client
-							const auto clientId = event.peer->connectID;
-							HZ_CORE_ASSERT(FindClientById(clientId) == nullptr, "Client id already in use!");
-
 							// Create new client
-							NetClientInfo& client = *AddClient(clientId);
+							const auto clientId = event.peer->connectID;
+							NetPeerInfo& client = *AddPeer(clientId);
 
 							client.Id = clientId;
 							client.Peer = event.peer;
@@ -120,10 +130,10 @@ namespace Hazel
 							client.Version = 0;
 							client.UserData = nullptr;
 
-							HZ_CORE_TRACE("Client \"{0}\" ({1}) with ip {2} connected", client.Address.GetHostname(), clientId, client.Address.GetAddress());
+							HZ_CORE_INFO("Client \"{0}\" ({1}) with ip {2} connected.", client.Address.GetHostname(), clientId, client.Address.GetAddress());
 							
 							// Queue event
-							//QueueEngineEvent(new PeerConnectedEvent(client));
+							QueueEngineEvent(new PeerConnectedEvent(client));
 
 							// Send server info data
 							SendServerInformation(client.Id);
@@ -137,37 +147,38 @@ namespace Hazel
 					case ENET_EVENT_TYPE_DISCONNECT:
 					{
 						// Delete client info
-						const NetClientInfo& client = *FindClientByPeer(event.peer);
-						auto reason = event.data;
+						const NetPeerInfo& client = *FindClientByPeer(event.peer);
+						NetDisconnectReasons reason = (NetDisconnectReasons)event.data;
+						auto clientId = client.Id;
 
-						HZ_CORE_WARN("Client \"{0}\" ({1}) with ip {2} disconnected for reason {3}", client.Address.GetHostname(), client.Id, client.Address.GetAddress(), reason);
+						HZ_CORE_WARN("Client \"{0}\" ({1}) with ip {2} disconnected for reason: {3}.", client.Address.GetHostname(), clientId, client.Address.GetAddress(), GetDisconnectReasonString(reason));
 
-						RemoveClient(client.Id);
+						RemovePeer(clientId);
 
 						// Queue event
-						//QueueEngineEvent(new PeerDisconnectedEvent());
+						QueueEngineEvent(new PeerDisconnectedEvent(clientId/*, reason*/));
 
 						// Let other clients know
-						SendClientDisconnectedMsg(client.Id);
+						SendClientDisconnectedMsg(clientId, reason);
 
 						break;
 					}
 					case ENET_EVENT_TYPE_RECEIVE:
 					{
-						auto packet = std::make_shared<NetPacket<64>>(event.packet);
+						auto packet = std::make_shared<BaseNetPacket>(event.packet);
 
 						// Destroy packet
 						enet_packet_destroy(event.packet);
 
 						// Forward packet to recipient if necessary
-						if (packet->GetRecipient() != ClientId::Server)
+						if (packet->GetRecipient() != PeerId::Server)
 						{
 							QueuePacket(*packet, 0, event.packet->flags);
 							PushPackets();
 						}
 
 						// Queue event
-						//QueueEngineEvent(new ReceivedNetMessageEvent(packet));
+						QueueEngineEvent(new ReceivedNetMessageEvent(packet));
 
 						break;
 					}
@@ -191,8 +202,8 @@ namespace Hazel
 	void Networking::Server::CleanUp()
 	{
 		// Delete clients
-		s_Data.Clients.clear();
-		s_Data.MaxClients = 0;
+		s_Data.Peers.clear();
+		s_Data.MaxPeers = 0;
 
 		// Destroy host
 		if (s_Data.Host)

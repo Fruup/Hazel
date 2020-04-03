@@ -18,8 +18,7 @@ namespace Hazel {
 		KeyPressed, KeyReleased, KeyTyped,
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
 
-		ConnectedToServer, DisconnectedFromServer,
-		ClientConnected, ClientDisconnected,
+		PeerConnected, PeerDisconnected,
 		ReceivedNetMessage
 	};
 

@@ -12,32 +12,28 @@ namespace Hazel
 		NetEvent() = default;
 	};
 
-	class ClientConnectedEvent : public NetEvent
+	class PeerConnectedEvent : public NetEvent
 	{
 	public:
-		ClientConnectedEvent() = default;
-		EVENT_CLASS_TYPE(ClientConnected)
+		PeerConnectedEvent(const NetPeerInfo& peer) : m_Peer(peer) {}
+		EVENT_CLASS_TYPE(PeerConnected)
+
+			inline const NetPeerInfo& GetPeer() const { return m_Peer; }
+
+	private:
+		const NetPeerInfo& m_Peer;
 	};
 
-	class ClientDisconnectedEvent : public NetEvent
+	class PeerDisconnectedEvent : public NetEvent
 	{
 	public:
-		ClientDisconnectedEvent() = default;
-		EVENT_CLASS_TYPE(ClientDisconnected)
-	};
+		PeerDisconnectedEvent(PeerId::Type id) : m_PeerId(id) {}
+		EVENT_CLASS_TYPE(PeerDisconnected)
 
-	class ConnectedToServerEvent : public NetEvent
-	{
-	public:
-		ConnectedToServerEvent() = default;
-		EVENT_CLASS_TYPE(ConnectedToServer)
-	};
+		inline PeerId::Type GetPeerId() const { return m_PeerId; }
 
-	class DisconnectedFromServerEvent : public NetEvent
-	{
-	public:
-		DisconnectedFromServerEvent() = default;
-		EVENT_CLASS_TYPE(DisconnectedFromServer)
+	private:
+		PeerId::Type m_PeerId;
 	};
 
 	class ReceivedNetMessageEvent : public NetEvent

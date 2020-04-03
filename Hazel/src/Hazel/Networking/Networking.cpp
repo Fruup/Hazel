@@ -72,7 +72,7 @@ namespace Hazel
 		else if (IsClient())
 			Client::Disconnect(0);
 
-		s_Data.Clients.clear();
+		s_Data.Peers.clear();
 		
 		// Deinit enet
 		enet_deinitialize();
@@ -81,6 +81,30 @@ namespace Hazel
 
 
 		s_Data.Initialized = false;
+	}
+
+	void Networking::QueuePacket(const BaseNetPacket& packet, enet_uint8 channel, enet_uint32 additionalFlags)
+	{
+		// Set packet sender
+		if (packet.GetSender() == PeerId::Invalid)
+			packet.m_From = s_Data.ThisPeerId;
+
+		// Create packet
+		auto enetpacket = enet_packet_create(packet.GetPackedData(), packet.GetPackedSize(), s_Data.PacketFlags | additionalFlags);
+
+		// Send packet
+		if (IsServer())
+		{
+			if (packet.GetRecipient() == PeerId::All)
+				enet_host_broadcast(s_Data.Host, channel, enetpacket);
+			else if (enet_peer_send(s_Data.Peers.at(packet.GetRecipient()).Peer, channel, enetpacket))
+				HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
+		}
+		else
+		{
+			if (enet_peer_send(s_Data.Peer, channel, enetpacket))
+				HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
+		}
 	}
 
 	void Networking::PushPackets()
@@ -104,17 +128,17 @@ namespace Hazel
 		s_Data.EngineEventQueueMutex.unlock();
 	}
 
-	NetClientInfo* Networking::FindClientById(ClientId::Type id)
+	NetPeerInfo* Networking::FindClientById(PeerId::Type id)
 	{
-		const auto it = s_Data.Clients.find(id);
-		if (it == s_Data.Clients.end())
+		const auto it = s_Data.Peers.find(id);
+		if (it == s_Data.Peers.end())
 			return nullptr;
 		return &it->second;
 	}
 
-	NetClientInfo* Networking::FindClientByPeer(ENetPeer* peer)
+	NetPeerInfo* Networking::FindClientByPeer(ENetPeer* peer)
 	{
-		for (auto& [id, client] : s_Data.Clients)
+		for (auto& [id, client] : s_Data.Peers)
 			if (client.Peer == peer)
 				return &client;
 		return nullptr;
@@ -153,74 +177,84 @@ namespace Hazel
 		s_Data.EngineEventQueueMutex.unlock();
 	}
 
-	void Networking::SendServerInformation(ClientId::Type recipient)
+	void Networking::SendServerInformation(PeerId::Type recipient)
 	{
 		NetPacket<256> packet(NetMsgType::ServerInformation, recipient);
 
 		// Serialize client info
-		packet.Push(s_Data.MaxClients);
+		packet.Write(s_Data.MaxPeers);
 
-		for (const auto&[id, client] : s_Data.Clients)
-			packet.Push(client);
+		for (const auto&[id, peer] : s_Data.Peers)
+			packet.Write(peer);
 
 		// Send packet immediately
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 		PushPackets();
 	}
 
-	void Networking::RecvServerInformation(MemoryType* data, uint32_t size)
+	void Networking::DispatchServerInformation(BaseMemoryBuffer& buffer)
 	{
-		ptrdiff_t offset = sizeof(s_Data.MaxClients);
-
 		// Read number of clients
-		memcpy(&s_Data.MaxClients, data, offset);
+		buffer.Read(&s_Data.MaxPeers);
 
 		// Allocate space
-		s_Data.Clients.reserve(s_Data.MaxClients);
+		s_Data.Peers.reserve(s_Data.MaxPeers);
 
-		// Deserialize clients
-		NetClientInfo client;
+		// Deserialize peer info
+		NetPeerInfo peer;
 
-		while (offset < size)
+		while (!buffer.IsEOF())
 		{
-			offset += client.Deserialize(data + offset);
-			*AddClient(client.Id) = client;
+			peer.Deserialize(buffer);
+			AddPeer(peer);
 		}
 	}
 
-	void Networking::SendClientConnectedMsg(ClientId::Type id)
+	void Networking::SendClientConnectedMsg(PeerId::Type id)
 	{
-		NetPacket<64> packet(NetMsgType::ClientConnected, ClientId::All);
-		packet.Push(s_Data.Clients.at(id));
+		NetPacket<64> packet(NetMsgType::ClientConnected, PeerId::All);
+		packet.Write(s_Data.Peers.at(id));
 
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 	}
 
-	void Networking::SendClientDisconnectedMsg(ClientId::Type id)
+	void Networking::SendClientDisconnectedMsg(PeerId::Type id, NetDisconnectReasons reason)
 	{
-		NetPacket<64> packet(NetMsgType::ClientDisconnected, ClientId::All);
-		packet.Push(id);
+		NetPacket<64> packet(NetMsgType::ClientDisconnected, PeerId::All);
+		packet.Write(id);
+		packet.Write(reason);
 
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 	}
 
 	void Networking::SendServerDisconnectedMsg()
 	{
-		NetPacket<32> packet(NetMsgType::ServerDisconnected, ClientId::All);
+		NetPacket<32> packet(NetMsgType::ServerDisconnected, PeerId::All);
 
 		QueuePacket(packet, 0, ENET_PACKET_FLAG_RELIABLE);
 		PushPackets();
 	}
 
-	NetClientInfo* Networking::AddClient(ClientId::Type id)
+	NetPeerInfo* Networking::AddPeer(PeerId::Type id)
 	{
+		HZ_CORE_ASSERT(GetNumPeers() < s_Data.MaxPeers, "About to exceed max peer count!");
 		HZ_CORE_ASSERT(FindClientById(id) == nullptr, "Client with id {0} already in use!", id);
-		return &s_Data.Clients[id];
+
+		auto& peer = s_Data.Peers[id];
+		peer.Id = id;
+		return &peer;
 	}
 
-	void Networking::RemoveClient(ClientId::Type id)
+	NetPeerInfo* Networking::AddPeer(const NetPeerInfo& peer)
+	{
+		auto newPeer = AddPeer(peer.Id);
+		*newPeer = peer;
+		return newPeer;
+	}
+
+	void Networking::RemovePeer(PeerId::Type id)
 	{
 		HZ_CORE_ASSERT(FindClientById(id) != nullptr, "Client with id {0} not found!", id);
-		s_Data.Clients.erase(id);
+		s_Data.Peers.erase(id);
 	}
 }

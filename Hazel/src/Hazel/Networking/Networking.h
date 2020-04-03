@@ -2,14 +2,11 @@
 
 #include <enet/enet.h>
 #include <queue>
-#include <unordered_map>
 
 #include "Hazel/Networking/NetworkingDefs.h"
 #include "Hazel/Networking/NetAddress.h"
 #include "Hazel/Networking/NetPacket.h"
-
 #include "Hazel/Events/Event.h"
-#include "Hazel/Core/Serialize.h"
 
 namespace Hazel
 {
@@ -60,13 +57,13 @@ namespace Hazel
 		struct NetworkingData
 		{
 		public:
-			NetState State = NetState::Disconnected;			
+			NetState State = NetState::Disconnected;
 			bool Initialized = false;
 			bool IsServer = false;
 			NetVersion Version = 0;
-			uint16_t MaxClients = 0;
-			std::unordered_map<ClientId::Type, NetClientInfo> Clients;
-			ClientId::Type ThisClientId = ClientId::Invalid;
+			uint16_t MaxPeers = 0;
+			std::unordered_map<PeerId::Type, NetPeerInfo> Peers;
+			PeerId::Type ThisPeerId = PeerId::Invalid;
 			NetAddress ServerAddress;
 			enet_uint32 PacketFlags = 0;
 			ENetHost* Host = nullptr;
@@ -81,37 +78,14 @@ namespace Hazel
 		static void Init(bool reliablePackets = false);
 		static void Shutdown();
 
-		template <uint32_t MaxSize>
-		static void QueuePacket(NetPacket<MaxSize>& packet, enet_uint8 channel = 0, enet_uint32 additionalFlags = 0)
-		{
-			// Set packet sender
-			if (packet.GetSender() == ClientId::Invalid)
-				packet.m_From = s_Data.ThisClientId;
-
-			// Create packet
-			auto enetpacket = enet_packet_create(packet.GetPackedData(), packet.GetPackedSize(), s_Data.PacketFlags | additionalFlags);
-
-			// Send packet
-			if (IsServer())
-			{
-				if (packet.GetRecipient() == ClientId::All)
-					enet_host_broadcast(s_Data.Host, channel, enetpacket);
-				else if (enet_peer_send(s_Data.Clients.at(packet.GetRecipient()).Peer, channel, enetpacket))
-					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
-			}
-			else
-			{
-				if (enet_peer_send(s_Data.Peer, channel, enetpacket))
-					HZ_CORE_ERROR("Failed to queue network packet of type {0} and size {1}!", packet.GetType(), packet.GetPackedSize());
-			}
-		}
+		static void QueuePacket(const BaseNetPacket& packet, enet_uint8 channel = 0, enet_uint32 additionalFlags = 0);
 
 		static void PushPackets();
 
 		static void PushEngineEvents();
 
-		static NetClientInfo* FindClientById(ClientId::Type id);
-		static NetClientInfo* FindClientByPeer(ENetPeer* peer);
+		static NetPeerInfo* FindClientById(PeerId::Type id);
+		static NetPeerInfo* FindClientByPeer(ENetPeer* peer);
 
 		inline static bool IsInitialized() { return s_Data.Initialized; }
 		inline static bool IsServer() { return s_Data.IsServer; }
@@ -120,11 +94,13 @@ namespace Hazel
 		inline static bool IsConnected() { return s_Data.State == NetState::Connected; }
 		inline static bool IsReady() { return IsConnected(); }
 
-		inline static bool IsServerFull() { return GetNumClients() == s_Data.MaxClients; }
+		inline static bool IsServerFull() { return GetNumPeers() == s_Data.MaxPeers; }
 		
 		inline static bool IsBanned(enet_uint32 ip) { return std::find(s_Data.BanList.begin(), s_Data.BanList.end(), ip) != s_Data.BanList.end(); }
 
-		inline static size_t GetNumClients() { return s_Data.Clients.size(); }
+		inline static size_t GetNumPeers() { return s_Data.Peers.size(); }
+		inline static size_t GetNumClients() { return GetNumPeers() - 1; }
+		inline static PeerId::Type GetThisPeerId() { return s_Data.ThisPeerId; }
 		inline static NetState GetState() { return s_Data.State; }
 
 		static const char* GetStateString();
@@ -140,16 +116,17 @@ namespace Hazel
 
 		static void QueueEngineEvent(Event* event);
 
-		static void SendServerInformation(ClientId::Type recipient);
-		static void RecvServerInformation(MemoryType* data, uint32_t size);
+		static void SendServerInformation(PeerId::Type recipient);
+		static void DispatchServerInformation(BaseMemoryBuffer& buffer);
 
-		static void SendClientConnectedMsg(ClientId::Type id);
-		static void SendClientDisconnectedMsg(ClientId::Type id);
+		static void SendClientConnectedMsg(PeerId::Type id);
+		static void SendClientDisconnectedMsg(PeerId::Type id, NetDisconnectReasons reason);
 
 		static void SendServerDisconnectedMsg();
 
-		static NetClientInfo* AddClient(ClientId::Type id);
-		static void RemoveClient(ClientId::Type id);
+		static NetPeerInfo* AddPeer(PeerId::Type id);
+		static NetPeerInfo* AddPeer(const NetPeerInfo& peer);
+		static void RemovePeer(PeerId::Type id);
 
 		static NetworkingData s_Data;
 	};

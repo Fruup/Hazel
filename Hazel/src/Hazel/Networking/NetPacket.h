@@ -5,24 +5,103 @@
 
 namespace Hazel
 {
+	//class Networking;
+
 	class BaseNetPacket
 	{
-	public:	
-		virtual const MemoryType* GetData() const = 0;
-		virtual void* GetPackedData() const = 0;
-		virtual size_t GetPackedSize() const = 0;
-		virtual size_t GetHeadroom() const = 0;
-		virtual NetMsgType::Type GetType() const = 0;
-		virtual ClientId::Type GetRecipient() const = 0;
-		virtual ClientId::Type GetSender() const = 0;
+		//friend static void Networking::QueuePacket(const BaseNetPacket& _1, enet_uint8 _2 = 0, enet_uint32 _3 = 0);
+		friend class Networking;
+
+	public:
+		BaseNetPacket(NetMsgType::Type type, PeerId::Type recipient, uint32_t capacity) :
+			m_Buffer(capacity),
+			m_Type(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + 0)),
+			m_To(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type))),
+			m_From(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type) + sizeof(PeerId::Type)))
+		{
+			SetHeader(type, recipient);
+			SetPointers();
+		}
+		BaseNetPacket(const ENetPacket* packet) :
+			m_Buffer((uint32_t)packet->dataLength),
+			m_Type(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + 0)),
+			m_To(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type))),
+			m_From(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type) + sizeof(PeerId::Type)))
+		{
+			// Copy data
+			m_Buffer.Write((void*)packet->data, packet->dataLength);
+			SetPointers();
+		}
+
+		// Forward read/write commands to internal buffer
+		template <typename ...Args>
+		inline void Write(Args&& ...args) { m_Buffer.Write(args...); }
+
+		template <typename ...Args>
+		inline void Read(Args&& ...args) { m_Buffer.Read(args...); }
+
+		// Getters
+		inline BaseMemoryBuffer& GetBuffer() { return m_Buffer; }
+		inline void* GetPackedData() const { return (void*)m_Buffer.GetData(); }
+		inline MemoryType* GetData() const { return m_Buffer.GetData() + DataStart; }
+		inline uint32_t GetDataSize() const { return m_Buffer.GetSize() - DataStart; }
+		inline uint32_t GetPackedSize() const { return m_Buffer.GetSize(); }
+		inline uint32_t GetHeadroom() const { return m_Buffer.GetHeadroom(); }
+		inline NetMsgType::Type GetType() const { return m_Type; }
+		inline PeerId::Type GetRecipient() const { return m_To; }
+		inline PeerId::Type GetSender() const { return m_From; }
+
+	private:
+		/* This member order is important! Buffer has to be initialized first. */
+
+		BaseMemoryBuffer m_Buffer;
+
+		NetMsgType::Type& m_Type;
+		PeerId::Type& m_To;
+		PeerId::Type& m_From;
+
+		static constexpr uint32_t DataStart = 2 * sizeof(PeerId::Type) + sizeof(NetMsgType::Type);
+
+		// Helpers
+		inline void SetPointers()
+		{
+			m_Buffer.SetWritePointer(DataStart);
+			m_Buffer.SetReadPointer(DataStart);
+		}
+		inline void BaseNetPacket::SetHeader(NetMsgType::Type type, PeerId::Type recipient)
+		{
+			// Set packet header
+			m_Type = type;
+			m_To = recipient;
+			//m_From = Networking::GetThisPeerId();
+			m_From = PeerId::Invalid;	// This is set in Networking::QueuePacket
+		}
 
 	protected:
-		BaseNetPacket() = default;
+		BaseNetPacket(NetMsgType::Type type, PeerId::Type recipient, MemoryType* data, uint32_t capacity, bool delete_ = false) :
+			m_Buffer(data, capacity, delete_),
+			m_Type(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + 0)),
+			m_To(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type))),
+			m_From(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type) + sizeof(PeerId::Type)))
+		{
+			SetHeader(type, recipient);
+			SetPointers();
+		}
+		BaseNetPacket(MemoryType* data, uint32_t capacity, const ENetPacket* packet) :
+			m_Buffer(data, capacity),
+			m_Type(*reinterpret_cast<NetMsgType::Type*>(m_Buffer.GetData() + 0)),
+			m_To(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type))),
+			m_From(*reinterpret_cast<PeerId::Type*>(m_Buffer.GetData() + sizeof(NetMsgType::Type) + sizeof(PeerId::Type)))
+		{
+			// Copy data
+			m_Buffer.Write(packet->data, packet->dataLength);
+			SetPointers();
+		}
 	};
 
 	// --------------------------------------
 
-	template <uint32_t MaxSize /*= 64*/>
+	template <uint32_t Capacity>
 	class NetPacket : public BaseNetPacket
 	{
 		friend class Networking;
@@ -32,48 +111,19 @@ namespace Hazel
 		NetPacket(const NetPacket&) = delete;
 		NetPacket(const NetPacket&&) = delete;
 
-		NetPacket(const ENetPacket* packet)
+		inline NetPacket(NetMsgType::Type type, PeerId::Type recipient) :
+			BaseNetPacket(type, recipient, m_Stream, Capacity) {}
+
+		inline NetPacket(const ENetPacket* packet) :
+			BaseNetPacket(m_Stream, Capacity, packet) {}
+
+		inline NetPacket(NetMsgType::Type type, PeerId::Type recipient, void* data, uint32_t size) :
+			BaseNetPacket(type, recipient, Capacity)
 		{
-			m_Type = *(NetMsgType::Type*)(packet->data + 0);
-			m_To = *(ClientId::Type*)(packet->data + sizeof(NetMsgType::Type));
-			m_From = *(ClientId::Type*)(packet->data + sizeof(NetMsgType::Type) + sizeof(ClientId::Type));
-
-			// Copy data, if existent
-			int dataLength = (signed)packet->dataLength - (signed)StreamStart;
-			if (dataLength > 0)
-				m_Buffer.Push(packet->data + StreamStart, (uint32_t)packet->dataLength - StreamStart);
+			Write(data, size);
 		}
-
-		NetPacket(NetMsgType::Type type, ClientId::Type to) :
-			m_Type(type), m_To(to) {}
-
-		NetPacket(void* data, size_t size, NetMsgType::Type type, ClientId::Type to) :
-			m_Type(type), m_To(to)
-		{
-			Push(data, size);
-		}
-
-		template <typename ...Args>
-		inline void Push(Args&& ...args) { m_Buffer.Push(std::forward<Args>(args)...); }
-
-		inline const MemoryBuffer<MaxSize>& GetBuffer() const { return m_Buffer; }
-
-		inline const MemoryType* GetData() const override { return m_Buffer.GetStream(); }
-		inline void* GetPackedData() const override { return (void*)&m_Type; }
-		inline size_t GetPackedSize() const override { return StreamStart + m_Buffer.GetPointer(); }
-		inline size_t GetHeadroom() const override { return m_Buffer.GetHeadroom(); }
-		inline NetMsgType::Type GetType() const override { return m_Type; }
-		inline ClientId::Type GetRecipient() const override { return m_To; }
-		inline ClientId::Type GetSender() const override { return m_From; }
-
-		//inline MemoryBuffer<MaxSize>& operator -> () { return m_Buffer; }
-
-		static constexpr uint32_t StreamStart = 2 * sizeof(ClientId::Type) + sizeof(NetMsgType::Type);
 
 	private:
-		NetMsgType::Type m_Type;
-		ClientId::Type m_To, m_From = ClientId::Invalid;
-
-		MemoryBuffer<MaxSize> m_Buffer;
+		MemoryType m_Stream[Capacity];
 	};
 }

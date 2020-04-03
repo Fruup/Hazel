@@ -1,18 +1,16 @@
 #pragma once
 
-#include <inttypes.h>
-#include <enet/types.h>
+//#include <inttypes.h>
 
 #include "Hazel/Networking/NetAddress.h"
-
 #include "Hazel/Core/Serialize.h"
 
 namespace Hazel
 {
-	using NetVersion = enet_uint32;
+	using NetVersion = uint32_t;
 
-	namespace ClientId {
-		using Type = enet_uint32;
+	namespace PeerId {
+		using Type = uint32_t;
 
 		enum : Type
 		{
@@ -22,17 +20,18 @@ namespace Hazel
 	}
 
 	namespace NetMsgType {
-		using Type = enet_uint32;
+		using Type = uint32_t;
 
 		enum : Type
 		{
-			ServerInformation = 0xf0000000ui32,
+			None = 0xf0000000ui32,
+			ServerInformation,
 			ClientConnected, ClientDisconnected,
 			ServerDisconnected
 		};
 	}
 
-	enum class NetDisconnectReasons : enet_uint32 { None = 1, ServerFull, Banned, VersionMismatch };
+	enum class NetDisconnectReasons : uint32_t { None = 1, ServerFull, Banned, VersionMismatch };
 
 	enum class NetState
 	{
@@ -43,26 +42,30 @@ namespace Hazel
 		Disconnecting
 	};
 
-	struct NetClientInfo : public Serializable<3>
+	struct NetPeerInfo : public Serializable<NetPeerInfo>
 	{
-		NetClientInfo() :
+		NetPeerInfo() :
 			Serializable(Id, Version, Name)
 		{
 		}
 
-		void operator = (const NetClientInfo& b)
-		{
-			Id = b.Id;
-			Peer = b.Peer;
-			Version = b.Version;
-			Name = b.Name;
-			Address = b.Address;
-			UserData = b.UserData;
-		}
+		//NetPeerInfo(const NetPeerInfo& other) = default;
 
-		ClientId::Type Id = ClientId::Invalid;
+		/*NetPeerInfo(const NetPeerInfo& other) :
+			Id(other.Id),
+			Peer(other.Peer),
+			Version(other.Version),
+			Name(other.Name),
+			Address(other.Address),
+			UserData(other.UserData)
+		{
+		}*/
+
+		//NetPeerInfo& operator = (const NetPeerInfo&) = default;
+
+		PeerId::Type Id = PeerId::Invalid;
 		ENetPeer* Peer = nullptr;
-		enet_uint32 Version = 0;
+		uint32_t Version = 0;
 		std::string Name;
 		NetAddress Address;
 		void* UserData = nullptr;

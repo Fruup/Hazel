@@ -147,13 +147,10 @@ namespace Hazel
 					HZ_CORE_INFO("Successfully connected to server {0}. Waiting for server info data...", s_Data.ServerAddress.GetHostname());
 
 					// Set client id
-					s_Data.ThisClientId = s_Data.Peer->connectID;
+					s_Data.ThisPeerId = s_Data.Peer->connectID;
 
 					// Set state
 					s_Data.State = NetState::WaitingForServerInfo;
-
-					// Push engine event to start listening on next occasion
-					//QueueEngineEvent(new ConnectedToServerEvent());
 
 					return true;
 				}
@@ -193,7 +190,7 @@ namespace Hazel
 				}
 				case ENET_EVENT_TYPE_RECEIVE:
 				{
-					NetPacket<256> packet(event.packet);
+					BaseNetPacket packet(event.packet);
 
 					// Destroy packet
 					enet_packet_destroy(event.packet);
@@ -202,12 +199,16 @@ namespace Hazel
 					if (packet.GetType() == NetMsgType::ServerInformation)
 					{
 						// Read information
-						RecvServerInformation((MemoryType*)packet.GetData(), packet.GetBuffer().GetPointer());
+						DispatchServerInformation(packet.GetBuffer());
+
+						// Queue events
+						for (const auto&[id, peer] : s_Data.Peers)
+							QueueEngineEvent(new PeerConnectedEvent(peer));
 
 						// Set state and start listening loop
 						s_Data.State = NetState::Ready;
 
-						HZ_CORE_INFO("Successfully retrieved server information data. Client ready.");
+						HZ_CORE_INFO("Successfully retrieved server information data ({0}/{1} peers). Client ready.", GetNumPeers(), s_Data.MaxPeers);
 						return true;
 					}
 
@@ -256,39 +257,59 @@ namespace Hazel
 					{
 						// The server disconnected
 						HZ_CORE_WARN("The server connection timed out.");
+
+						// Queue event
+						QueueEngineEvent(new PeerDisconnectedEvent(PeerId::Server));
+
 						return false;
 					}
 					case ENET_EVENT_TYPE_RECEIVE:
 					{
-						auto packet = std::make_shared<NetPacket<64>>(event.packet);
+						auto packet = std::make_shared<BaseNetPacket>(event.packet);
 
 						// Destroy packet
 						enet_packet_destroy(event.packet);
 
 						// Ignore own packets
-						if (packet->GetSender() == s_Data.ThisClientId)
+						if (packet->GetSender() == s_Data.ThisPeerId)
 							break;
 
 						// Handle event engine side
 						if (packet->GetType() == NetMsgType::ClientConnected)
 						{
-							NetClientInfo newClient;
-							newClient.Deserialize(packet->GetData());
+							NetPeerInfo newClient;
+							newClient.Deserialize(packet->GetBuffer());
 
 							// Ignore if it was this client
-							if (newClient.Id != s_Data.ThisClientId)
+							if (newClient.Id != s_Data.ThisPeerId)
 							{
 								// Add new client
-								*AddClient(newClient.Id) = newClient;
+								NetPeerInfo& tmp = *AddPeer(newClient);
 
 								// Queue event
-								//QueueEngineEvent(new NetClientConnected());
+								QueueEngineEvent(new PeerConnectedEvent(tmp));
+
+								HZ_CORE_INFO("Client ({0}, {1}) connected.", tmp.Id, tmp.Name);
 							}
 						}
 						else if (packet->GetType() == NetMsgType::ClientDisconnected)
 						{
+							// Dispatch
+							PeerId::Type clientId;
+							NetDisconnectReasons reason;
+
+							packet->Read(&clientId);
+							packet->Read(&reason);
+
+							const std::string& name = FindClientById(clientId)->Name;
+
 							// Delete client
-							RemoveClient(*(ClientId::Type*)packet->GetData());
+							RemovePeer(clientId);
+
+							// Queue event
+							QueueEngineEvent(new PeerDisconnectedEvent(clientId/*, reason*/));
+
+							HZ_CORE_INFO("Client ({0}, {1}) disconnected for reason: {2}.", clientId, name, GetDisconnectReasonString(reason));
 						}
 						else if (packet->GetType() == NetMsgType::ServerDisconnected)
 						{
@@ -326,8 +347,8 @@ namespace Hazel
 		s_Data.State = NetState::Disconnected;
 
 		// Delete clients
-		s_Data.Clients.clear();
-		s_Data.MaxClients = 0;
+		s_Data.Peers.clear();
+		s_Data.MaxPeers = 0;
 
 		// Destroy peer
 		if (s_Data.Peer)
