@@ -1,159 +1,309 @@
 #pragma once
 
-#include "Hazel.h"
 #include "Hazel/Core/MemoryBuffer.h"
+
+#include <unordered_map>
 
 namespace Hazel
 {
-	enum class MemoryChunkType : uint32_t
+	class Layout;
+
+	using HashType = size_t;
+
+	// -----------------------------
+
+	class BaseSerializable
 	{
-		Unknown, Fundamental, StdString
+	public:
+		virtual HashType GetTypeHash() const = 0;
+
+		inline uint32_t Serialize(BaseMemoryBuffer& stream) const;
+		inline uint32_t Deserialize(BaseMemoryBuffer& stream) const;
+
+		inline const Layout& GetLayout() const;
+
+	protected:
+		BaseSerializable() = default;
+	};
+
+	template <typename T>
+	class Serializable : public BaseSerializable
+	{
+	public:
+		inline HashType GetTypeHash() const override { return typeid(T).hash_code(); }
+
+	protected:
+		Serializable() = delete;
+
+		template <typename ...Args>
+		inline Serializable(Args&& ...args);
 	};
 
 	// -----------------------------
 
-	struct DataBlock
+	enum class MemoryChunkType : uint32_t
 	{
-		DataBlock() = default;
-		DataBlock(DataBlock&&) = default;
-
-		template <typename T>
-		inline DataBlock(const T& data) :
-			Data((void*)&data), Size(sizeof(T)), Type(MemoryChunkType::Fundamental)
-		{
-			static_assert(std::is_fundamental<T>());
-		}
-
-		DataBlock(const std::string& data) :
-			Data((void*)&data), Size((uint32_t)-1), Type(MemoryChunkType::StdString)
-		{
-		}
-
-	public:
-		void* Data;
-		MemoryChunkType Type;
-		uint32_t Size;
+		Fundamental8, Fundamental16, Fundamental32, Fundamental64,
+		//Fundamental,
+		StdString, Serializable
 	};
+
+	// -----------------------------
 
 	struct MemoryChunk
 	{
 		MemoryChunk() = default;
-		MemoryChunk(void* begin, const DataBlock& block) :
-			Type(block.Type), Size(block.Size),
-			Offset(((intptr_t)block.Data) - ((intptr_t)begin)) {}
+		MemoryChunk(const MemoryChunk&) = delete;
+		MemoryChunk(MemoryChunk&&) = delete;
+		MemoryChunk& operator = (const MemoryChunk&) = default;
 
-		ptrdiff_t Offset;
+		MemoryChunk(intptr_t objPtr, const MemoryChunk& other) :
+			Offset(other.Ptr - objPtr), Type(other.Type)
+		{
+		}
+
+		template <typename T>
+		MemoryChunk(const T& data) :
+			Ptr((intptr_t)&data)
+		{
+			SetType(data);
+		}
+
+
+		inline intptr_t GetPtr() const { return Ptr; }
+		inline intptr_t GetOffset() const { return Offset; }
+		inline MemoryChunkType GetType() const { return Type; }
+		inline HashType GetHash() const { return Hash; }
+
+	private:
+		union { intptr_t Ptr, Offset; };
 		MemoryChunkType Type;
-		uint32_t Size;
+		HashType Hash = 0;
+
+	private:
+		template <typename T>
+		inline std::enable_if_t<std::is_fundamental_v<T>> SetType(const T& data)
+		{
+			switch (sizeof(T))
+			{
+			case 1: Type = MemoryChunkType::Fundamental8; break;
+			case 2: Type = MemoryChunkType::Fundamental16; break;
+			case 4: Type = MemoryChunkType::Fundamental32; break;
+			case 8: Type = MemoryChunkType::Fundamental64; break;
+			default:
+				HZ_CORE_ASSERT(false, "Unsupported memory chunk size!");
+			}
+		}
+
+		inline void SetType(const std::string& data)
+		{
+			Type = MemoryChunkType::StdString;
+		}
+
+		inline void SetType(const BaseSerializable& obj)
+		{
+			Type = MemoryChunkType::Serializable;
+			Hash = obj.GetTypeHash();
+		}
 	};
 
 	// -----------------------------
 
-	template <uint32_t NumVars>
-	class Serializable
+	class Layout
 	{
 	public:
-		template <uint32_t MaxSize>
-		MemoryBuffer<MaxSize>& Serialize(MemoryBuffer<MaxSize>& buffer) const
+		Layout(intptr_t objPtr, uint32_t num, MemoryChunk* chunks) :
+			m_Num(num)
 		{
-			for (uint32_t i = 0; i < NumVars; ++i)
-			{
-				void* data = (MemoryType*)this + m_Layout[i].Offset;
-
-				switch (m_Layout[i].Type)
-				{
-				case MemoryChunkType::Fundamental:
-				{
-					buffer.Push(data, m_Layout[i].Size);
-					break;
-				}
-
-				case MemoryChunkType::StdString:
-				{
-					buffer.Push(*((std::string*)data));
-					break;
-				}
-
-				default:
-					HZ_CORE_ASSERT(false, "Unkown memory chunk type!");
-				}
-			}
-
-			if (buffer.GetHeadroom() > 32)
-				HZ_CORE_WARN("Serialized {0} bytes with remaining headroom of {1} bytes", buffer.GetPointer(), buffer.GetHeadroom());
-
-			return buffer;
+			m_Chunks = new MemoryChunk[m_Num];
+			for (uint32_t i = 0; i < num; i++)
+				m_Chunks[i] = MemoryChunk(objPtr, chunks[i]);
 		}
 
-		template <uint32_t MaxSize>
-		inline MemoryBuffer<MaxSize> Serialize() const
+		~Layout()
 		{
-			MemoryBuffer<MaxSize> buffer;
-			Serialize(buffer);
-			return buffer;
+			delete[] m_Chunks;
 		}
 
-		ptrdiff_t Deserialize(const MemoryType* stream) const
-		{
-			MemoryType* pointer = (MemoryType*)stream;
-			const MemoryType* begin = (MemoryType*)this;
-
-			for (uint32_t i = 0; i < NumVars; ++i)
-			{
-				void* data = (void*)(begin + m_Layout[i].Offset);
-
-				switch (m_Layout[i].Type)
-				{
-					case MemoryChunkType::Fundamental:
-					{
-						memcpy(data, pointer, m_Layout[i].Size);
-						break;
-					}
-
-					case MemoryChunkType::StdString:
-					{
-						// Read string length
-						const StringLenType len = *((StringLenType*)pointer);
-
-						// Reserve space in string
-						std::string& s = *((std::string*)data);
-						s.resize(len);
-
-						memcpy((void*)s.data(), pointer + sizeof(len), len);
-
-						break;
-					}
-
-					default:
-						HZ_CORE_ASSERT(false, "Unkown memory chunk type!");
-				}
-
-				pointer += m_Layout[i].Size;
-			}
-
-			return (ptrdiff_t)pointer - (ptrdiff_t)stream;
-		}
-
-	protected:
-		Serializable() = delete;
-		//Serializable(const Serializable&) = delete;
-		Serializable(const Serializable&&) = delete;
-
-		template <typename ...Args>
-		Serializable(Args&& ...args) { HelpMe({ args... }); }
+		inline const MemoryChunk& operator [] (int i) const { return m_Chunks[i]; }
+		inline uint32_t GetNumChunks() const { return m_Num; }
 
 	private:
-		template <uint32_t NumArgs>
-		inline void HelpMe(const DataBlock(&layout)[NumArgs])
-		{
-			// Assert number of arguments
-			static_assert(NumVars == NumArgs, "Number of variables does not match!");
+		const uint32_t m_Num;
+		MemoryChunk* m_Chunks = nullptr;
+	};
 
-			// Compute offsets
-			for (uint32_t i = 0; i < NumVars; i++)
-				m_Layout[i] = MemoryChunk(this, layout[i]);
+	// -----------------------------
+
+	class Serializer
+	{
+	public:
+		~Serializer()
+		{
+			// Delete layouts
+			for (auto l : m_Layouts)
+				delete l.second;
 		}
 
-		MemoryChunk m_Layout[NumVars];
+		inline static uint32_t Serialize(const BaseSerializable& obj, BaseMemoryBuffer& stream) { return Serialize((const MemoryType*)&obj, obj.GetTypeHash(), stream); }
+
+		static uint32_t Serialize(const MemoryType* obj, HashType hash, BaseMemoryBuffer& stream)
+		{
+			// Store write pointer
+			const uint32_t startPointer = stream.GetWritePointer();
+
+			// Find layout from hash
+			const Layout& layout = GetLayout(hash);
+
+			// Serialize
+			for (uint32_t i = 0; i < layout.GetNumChunks(); ++i)
+			{
+				void* data = (void*)(obj + layout[i].GetOffset());
+
+				switch (layout[i].GetType())
+				{
+				case MemoryChunkType::Fundamental8:
+				{
+					stream.Write(data, 1);
+					break;
+				}
+				case MemoryChunkType::Fundamental16:
+				{
+					stream.Write(data, 2);
+					break;
+				}
+				case MemoryChunkType::Fundamental32:
+				{
+					stream.Write(data, 4);
+					break;
+				}
+				case MemoryChunkType::Fundamental64:
+				{
+					stream.Write(data, 8);
+					break;
+				}
+				case MemoryChunkType::StdString:
+				{
+					stream.Write(*reinterpret_cast<std::string*>(data));
+					break;
+				}
+				case MemoryChunkType::Serializable:
+				{
+					Serialize((const MemoryType*)data, layout[i].GetHash(), stream);
+					break;
+				}
+				default:
+					break;
+				}
+			}
+
+			return stream.GetWritePointer() - startPointer;
+		}
+
+		inline static uint32_t Deserialize(const BaseSerializable& obj, BaseMemoryBuffer& stream) { return Deserialize((const MemoryType*)&obj, obj.GetTypeHash(), stream); }
+
+		static uint32_t Deserialize(const MemoryType* obj, HashType hash, BaseMemoryBuffer& stream)
+		{
+			// Store read pointer
+			const uint32_t startPointer = stream.GetReadPointer();
+
+			// Get layout from hash
+			const auto& layout = GetLayout(hash);
+
+			// Deserialize
+			for (uint32_t i = 0; i < layout.GetNumChunks(); ++i)
+			{
+				void* dst = (void*)(obj + layout[i].GetOffset());
+
+				switch (layout[i].GetType())
+				{
+				case MemoryChunkType::Fundamental8:
+				{
+					stream.Read(dst, 1);
+					break;
+				}
+				case MemoryChunkType::Fundamental16:
+				{
+					stream.Read(dst, 2);
+					break;
+				}
+				case MemoryChunkType::Fundamental32:
+				{
+					stream.Read(dst, 4);
+					break;
+				}
+				case MemoryChunkType::Fundamental64:
+				{
+					stream.Read(dst, 8);
+					break;
+				}
+				case MemoryChunkType::StdString:
+				{
+					stream.Read(*reinterpret_cast<std::string*>(dst));
+					break;
+				}
+				case MemoryChunkType::Serializable:
+				{
+					Deserialize((const MemoryType*)dst, layout[i].GetHash(), stream);
+					break;
+				}
+				default:
+					break;
+				}
+			}
+
+			return stream.GetReadPointer() - startPointer;
+		}
+
+		template <typename T, typename ...Args>
+		static void RegisterLayout(const T& obj, Args&& ...members)
+		{
+			// Look for existing layout for this data type
+			const HashType& hash = obj.GetTypeHash();
+			auto it = Get().m_Layouts.find(hash);
+
+			if (it == Get().m_Layouts.end())
+			{
+				// Create new layout
+				MemoryChunk chunks[sizeof...(members)] = { members... };
+				Get().m_Layouts.emplace(hash, new Layout((intptr_t)&obj, sizeof...(members), chunks));
+			}
+		}
+
+		inline static const Layout& GetLayout(HashType hash)
+		{
+			return *Get().m_Layouts.at(hash);
+		}
+
+		template <typename T>
+		inline static const Layout& GetLayout()
+		{
+			return *Get().m_Layouts.at(typeid(T).hash_code());
+		}
+
+
+		static Serializer& Get()
+		{
+			static Serializer instance;
+			return instance;
+		}
+
+	private:
+		Serializer() = default;
+
+		std::unordered_map<HashType, Layout*> m_Layouts;
 	};
+
+	// -----------------------------
+
+	inline uint32_t BaseSerializable::Serialize(BaseMemoryBuffer& stream) const { return Serializer::Serialize(*this, stream); }
+	inline uint32_t BaseSerializable::Deserialize(BaseMemoryBuffer& stream) const { return Serializer::Deserialize(*this, stream); }
+
+	inline const Layout& BaseSerializable::GetLayout() const { return Serializer::GetLayout(GetTypeHash()); }
+
+	template <typename T>
+	template <typename ...Args>
+	inline Serializable<T>::Serializable(Args&& ...args) { Serializer::RegisterLayout(static_cast<T&>(*this), args...); }
+
+	// -----------------------------
 }
