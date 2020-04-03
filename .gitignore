@@ -18,3 +18,5 @@ bin-int/
 *.lua
 /Sandbox/run.bat
 /Sandbox/imgui.ini
+/Sandbox/Sandbox_dbg.exe - Verknüpfung.lnk
+/Sandbox/Sandbox.exe - Verknüpfung.lnk

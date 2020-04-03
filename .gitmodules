@@ -16,5 +16,5 @@
 	branch = master
 [submodule "Hazel/vendor/enet"]
 	path = Hazel/vendor/enet
-	url = https://github.com/lsalzman/enet
+	url = https://github.com/Leon/enet
 	branch = master
