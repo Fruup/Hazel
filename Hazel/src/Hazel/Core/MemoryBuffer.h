@@ -1,99 +1,148 @@
 #pragma once
 
 #include <string>
-#include <array>
-#include <assert.h>
 
 namespace Hazel
 {
+	class BaseSerializable;
+
 	using MemoryType = uint8_t;
-	using StringLenType = uint32_t;
 
-	template <uint32_t> class Serializable;
+	// ------------------------------------------
 
-	// ---------------------------------
-
-	template <uint32_t MaxSize>
-	class MemoryBuffer
+	class BaseMemoryBuffer
 	{
 	public:
-		MemoryBuffer() = default;
+		BaseMemoryBuffer() = delete;
+		BaseMemoryBuffer(BaseMemoryBuffer&) = delete;
+		BaseMemoryBuffer(BaseMemoryBuffer&&) = delete;
 
-		template <uint32_t _>
-		inline MemoryBuffer(const MemoryBuffer<_>& buffer) { Push(buffer); }
-
-		inline MemoryBuffer(void* data, uint32_t size) { Push(data, size); }
-
-
-		// Push data to the buffer
-		void Push(void* data, uint32_t size)
+		BaseMemoryBuffer(uint32_t capacity) :
+			m_Delete(true),
+			m_Capacity(capacity),
+			m_Data(new MemoryType[capacity])
 		{
-			assert(GetHeadroom() >= size);
-
-			memcpy(m_Stream + m_Pointer, data, size);
-			m_Pointer += size;
 		}
 
-		inline void Push(const std::string& string)
+		BaseMemoryBuffer(MemoryType* data, uint32_t capacity, bool delete_ = false) :
+			m_Capacity(capacity), m_Data(data), m_Delete(delete_)
 		{
-			StringLenType n = (StringLenType)(string.length() + 1);
-			Push(n);
-			Push((void*)string.data(), n);
 		}
 
-#define MEMORY_BUFFER_CONSTR(type)\
-		inline void Push(const type& data) { Push((void*)&data, sizeof(type)); }
-
-#define MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(type)\
-		inline void Push(const signed type& data) { Push((void*)&data, sizeof(type)); }\
-		inline void Push(const unsigned type& data) { Push((void*)&data, sizeof(type)); }
-
-		MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(char)
-		MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(short)
-		MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(int)
-		MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(long)
-		MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED(long long)
-		MEMORY_BUFFER_CONSTR(float)
-		MEMORY_BUFFER_CONSTR(double)
-		MEMORY_BUFFER_CONSTR(long double)
-
-#undef MEMORY_BUFFER_CONSTR
-#undef MEMORY_BUFFER_CONSTR_SIGNED_UNSIGNED
-
-		/*template <typename T>
-		inline void Push(const T& data)
+		virtual ~BaseMemoryBuffer()
 		{
-			HZ_CORE_ASSERT(std::is_fundamental<T>::value, "This function is only safe for primitive data types");
-			Push((void*)&data, sizeof(T));
-		}*/
+			// Delete data
+			if (m_Delete)
+				delete[] m_Data;
+		}
 
-		template <uint32_t _>
-		inline void Push(const MemoryBuffer<_>& buffer) { Push(buffer.GetStream(), buffer.GetPointer()); }
+		// Write
+		void Write(void* data, size_t size)
+		{
+			HZ_CORE_ASSERT(m_WritePointer + size <= m_Capacity, "About to exceed buffer limit!");
 
-		template <uint32_t _>
-		inline void Push(const Serializable<_>& s);
+			memcpy((void*)(m_Data + m_WritePointer), data, size);
+			m_WritePointer += (uint32_t)size;
 
+			UpdateSize();
+		}
+
+		template <typename T>
+		inline std::enable_if_t<std::is_fundamental_v<T>> Write(const T& data)
+		{
+			Write((void*)&data, sizeof(T));
+		}
+		template <typename T>
+		inline std::enable_if_t<std::is_enum_v<T>> Write(const T& data)
+		{
+			Write((void*)&data, sizeof(std::underlying_type_t<T>));
+		}
+		void Write(const BaseSerializable& s);
+		inline void Write(const BaseMemoryBuffer& buffer)
+		{
+			Write((void*)buffer.m_Data, buffer.m_Size);
+		}
+		inline void Write(const std::string& s)
+		{
+			uint32_t len = (uint32_t)(s.length() + 1);
+
+			Write(len);
+			Write((void*)s.data(), len);
+		}
+
+		// Read
+		void Read(void* out, size_t size)
+		{
+			HZ_CORE_ASSERT(m_ReadPointer + size <= m_Size, "About to exceed buffer limit!");
+
+			memcpy(out, m_Data + m_ReadPointer, size);
+			m_ReadPointer += (uint32_t)size;
+		}
+
+		template <typename T>
+		inline void Read(const T* data)
+		{
+			static_assert(std::is_trivially_copyable<T>(), "T not trivial!");
+			Read((void*)data, sizeof(T));
+		}
+		inline void Read(std::string& s)
+		{
+			// Read string length
+			uint32_t len;
+			Read(&len);
+
+			// Reserve space and copy data to string
+			s.resize(len);
+			Read((void*)s.data(), len);
+		}
+		void Read(BaseSerializable& s);
+
+		inline void UpdateSize()
+		{
+			m_Size = m_WritePointer > m_Size ? m_WritePointer : m_Size;
+		}
+
+		// Setters
+		inline void SetWritePointer(uint32_t p)
+		{
+			HZ_CORE_ASSERT(p >= 0 && p <= m_Capacity, "About to exceed buffer limit!");
+			m_WritePointer = p;
+			UpdateSize();
+		}
+		inline void SetReadPointer(uint32_t p)
+		{
+			HZ_CORE_ASSERT(p >= 0 && p <= m_Size, "About to exceed buffer limit!");
+			m_ReadPointer = p;
+		}
 
 		// Getters
-		inline uint32_t GetHeadroom() const { return MaxSize - m_Pointer; }
-		inline const MemoryType* GetStream() const { return m_Stream; }
-		inline uint32_t GetPointer() const { return m_Pointer; }
-		inline uint32_t GetMaxSize() const { return MaxSize; }
+		inline MemoryType* GetData() const { return m_Data; }
+		inline bool ShouldDelete() const { return m_Delete; }
+		inline uint32_t GetReadPointer() const { return m_ReadPointer; }
+		inline uint32_t GetWritePointer() const { return m_WritePointer; }
+		inline uint32_t GetSize() const { return m_Size; }
+		inline uint32_t GetCapacity() const { return m_Capacity; }
+		inline uint32_t GetHeadroom() const { return GetCapacity() - GetSize(); }
+		inline bool IsEOF() const { return GetReadPointer() >= GetCapacity(); }
+
+	protected:
+		uint32_t m_ReadPointer = 0, m_WritePointer = 0;
+
+		uint32_t m_Size = 0, m_Capacity;
+		MemoryType* m_Data;
+		bool m_Delete;
+	};
+
+	// ------------------------------------------
+
+	// Stack memory buffer
+	template <uint32_t Capacity>
+	class MemoryBuffer : public BaseMemoryBuffer
+	{
+	public:
+		MemoryBuffer() : BaseMemoryBuffer(m_Data, Capacity, false) {}
 
 	private:
-		MemoryType m_Stream[MaxSize];
-		uint32_t m_Pointer = 0;
+		MemoryType m_Data[Capacity];
 	};
-}
-
-#include "Hazel/Core/Serialize.h"
-
-namespace Hazel
-{
-	template <uint32_t MaxSize>
-	template <uint32_t _>
-	inline void MemoryBuffer<MaxSize>::Push(const Serializable<_>& s)
-	{
-		s.Serialize(*this);
-	}
 }
