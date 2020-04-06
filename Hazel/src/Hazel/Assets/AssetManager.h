@@ -8,36 +8,39 @@ namespace Hazel
 {
 	using AssetId = uint32_t;
 
-	class Asset
+	enum class AssetType
 	{
-	public:
-		virtual void Load(BaseMemoryBuffer& buffer) = 0;
-
-		inline AssetId GetId() const { return m_Id; }
-
-	protected:
-		Asset() : m_Id(0) {}
-
-	private:
-		AssetId m_Id;
+		None,
+		TextFile,
+		Texture
 	};
 
-	class TextFileAsset : public Asset
+	class Asset
 	{
+		friend class AssetManager;
+
 	public:
+		inline AssetId GetId() const { return m_Id; }
+		inline AssetType GetType() const { return m_Type; }
+
+		static Asset* Create(AssetType type, AssetId id);
+
+	protected:
+		Asset() = default;
+
+		virtual void Load(BaseMemoryBuffer& buffer, const std::string& filename) = 0;
 
 	private:
-		void Load(BaseMemoryBuffer& buffer) override;
-
-		std::vector<std::string> m_Lines;
+		AssetType m_Type = AssetType::None;
+		AssetId m_Id = 0;
 	};
 
 	class AssetManager
 	{
 	public:
-		static Ref<Asset> GetAsset(const std::string& filename);
+		static Ref<Asset> GetAsset(const std::string& filename); // Find or create asset
 
-		static Ref<Asset> FindAsset(AssetId id);
+		static Ref<Asset> FindAsset(AssetId id); // Find existing asset
 
 	private:
 		static void AddAsset(const Ref<Asset>& asset);

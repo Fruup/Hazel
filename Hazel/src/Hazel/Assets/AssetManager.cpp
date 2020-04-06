@@ -1,14 +1,11 @@
 #include "hzpch.h"
 #include "AssetManager.h"
 
+#include "TextFileAsset.h"
+#include "TextureAsset.h"
+
 namespace Hazel
 {
-	enum class AssetType
-	{
-		None,
-		TextFile
-	};
-
 	const char* GetFileExtension(const char* filename)
 	{
 		uint32_t i = 0;
@@ -18,14 +15,15 @@ namespace Hazel
 				return &filename[i + 1];
 			++i;
 		}
+
+		return nullptr;
 	}
 
-	template <uint32_t count>
-	bool CheckString(const char* str, const char* l[count])
+	bool CheckString(const char* str, std::initializer_list<const char*> l)
 	{
-		for (uint32_t i = 0; i < count; i++)
+		for (const char* s : l)
 		{
-			if (!strcmp(l[i], str))
+			if (!strcmp(s, str))
 				return true;
 		}
 
@@ -36,7 +34,15 @@ namespace Hazel
 	{
 		const char* ext = GetFileExtension(filename.c_str());
 
-		//if (CheckString(ext, { "txt", "ini", "cfg" })) return AssetType::TextFile;
+		if (CheckString(ext, TextFileAsset::FileExtensions)) return AssetType::TextFile;
+		else if (CheckString(ext, TextureAsset::FileExtensions)) return AssetType::Texture;
+		else
+		{
+			// Try to extract asset type from file header
+			// ...
+		}
+
+		return AssetType::None;
 	}
 
 	Ref<Asset> AssetManager::GetAsset(const std::string& filename)
@@ -44,16 +50,29 @@ namespace Hazel
 		// Load file in memory buffer
 		std::ifstream stream(filename.c_str(), std::ios::binary | std::ios::ate);
 
-		BaseMemoryBuffer buffer(stream.tellg());
+		BaseMemoryBuffer buffer((uint32_t)stream.tellg());
 		stream.read((char*)buffer.GetData(), buffer.GetCapacity());
 		buffer.SetWritePointer(buffer.GetCapacity());
 
 		// Get asset type
-		GetAssetType(filename, buffer);
+		AssetType type = GetAssetType(filename, buffer);
+
+		// Compute asset id as hash of its filename
+		std::hash<std::string> H;
+		auto hash = H(filename);
+
+#if _WIN64
+		// XOR hi and lo part of 64-bit hash to fit into 32-bit asset id
+		AssetId id = (uint32_t)(hash >> 32) ^ (uint32_t)(hash & 0x00000000ffffffff);
+#else
+		AssetId id = hash;
+#endif
+
+		// Create asset
+		Ref<Asset> asset = Ref<Asset>(Asset::Create(type, id));
 
 		// Load asset
-		Ref<Asset> asset = std::make_shared<Asset>();
-		asset->Load(buffer);
+		asset->Load(buffer, filename);
 
 		// Add to map
 		AddAsset(asset);
@@ -65,7 +84,7 @@ namespace Hazel
 	{
 		auto it = s_Data.Assets.find(id);
 		if (it == s_Data.Assets.end())
-			return Ref<Asset>();
+			return Ref<Asset>(nullptr);
 		else
 			return it->second;
 	}
@@ -75,26 +94,23 @@ namespace Hazel
 		HZ_CORE_ASSERT(!FindAsset(asset->GetId()), "Asset already existent!");
 		
 		s_Data.Assets.insert(std::make_pair(asset->GetId(), asset));
-	
 	}
-	void TextFileAsset::Load(BaseMemoryBuffer& buffer)
+
+	Asset* Asset::Create(AssetType type, AssetId id)
 	{
-		char c;
-		std::string line;
+		Asset* asset = nullptr;
 
-		while (!buffer.IsEOF())
+		switch (type)
 		{
-			buffer.Read(&c, 1);
-
-			if (c == '\n')
-			{
-				m_Lines.push_back(line);
-				line = "";
-			}
-			else
-			{
-				line.push_back(c);
-			}
+		case AssetType::TextFile:	asset = new TextFileAsset(); break;
+		case AssetType::Texture:	asset = new TextureAsset(); break;
+		default:
+			HZ_CORE_ASSERT(false, "Unknown asset type!");
 		}
+
+		asset->m_Type = type;
+		asset->m_Id = id;
+
+		return asset;
 	}
 }
