@@ -13,3 +13,10 @@ bin-int/
 **.vcxproj
 **.vcxproj.filters
 **.vcxproj.user
+
+# Misc
+/orig_premake5.lua
+*.lnk
+
+# Modules
+/Hazel/vendor/enet/
