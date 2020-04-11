@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Hazel/Core/Log.h"
+
 #include <string>
 
 namespace Hazel

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Hazel/Networking/NetworkingDefs.h"
+#include "Hazel/Networking/NetPacket.h"
 #include "Hazel/Events/Event.h"
 
 namespace Hazel

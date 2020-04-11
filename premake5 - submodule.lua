@@ -7,14 +7,15 @@ IncludeDir["Glad"] = "Hazel/vendor/Glad/include"
 IncludeDir["ImGui"] = "Hazel/vendor/imgui"
 IncludeDir["glm"] = "Hazel/vendor/glm"
 IncludeDir["stb_image"] = "Hazel/vendor/stb_image"
+IncludeDir["enet"] = "Hazel/vendor/enet/include"
+
+group "Hazel/Dependencies"
+	include "Hazel/vendor/GLFW"
+	include "Hazel/vendor/Glad"
+	include "Hazel/vendor/imgui"
+	include "Hazel/vendor/enet"
 
 group "Hazel"
-	group "Dependencies"
-		include "Hazel/vendor/GLFW"
-		include "Hazel/vendor/Glad"
-		include "Hazel/vendor/imgui"
-
-	group ""
 
 	project "Hazel"
 		location "Hazel"
@@ -52,7 +53,8 @@ group "Hazel"
 			"%{IncludeDir.Glad}",
 			"%{IncludeDir.ImGui}",
 			"%{IncludeDir.glm}",
-			"%{IncludeDir.stb_image}"
+			"%{IncludeDir.stb_image}",
+			"%{IncludeDir.enet}"
 		}
 
 		links 
@@ -60,6 +62,7 @@ group "Hazel"
 			"GLFW",
 			"Glad",
 			"ImGui",
+			"enet_static",
 			"opengl32.lib"
 		}
 
@@ -72,8 +75,14 @@ group "Hazel"
 				"GLFW_INCLUDE_NONE"
 			}
 
+			links
+			{
+				"ws2_32.lib",
+				"Winmm.lib"
+			}
+
 		filter "configurations:Debug"
-			defines "HZ_DEBUG"
+			defines { "HZ_DEBUG", "ENET_DEBUG" }
 			runtime "Debug"
 			symbols "on"
 

@@ -19,7 +19,9 @@ namespace Hazel {
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled,
 
 		PeerConnected, PeerDisconnected,
-		ReceivedNetMessage
+		ReceivedNetMessage,
+
+		GameEvent
 	};
 
 	enum EventCategory
@@ -31,7 +33,9 @@ namespace Hazel {
 		EventCategoryMouse          = BIT(3),
 		EventCategoryMouseButton    = BIT(4),
 
-		EventCategoryNetwork		= BIT(5)
+		EventCategoryNetwork		= BIT(5),
+
+		EventCategoryGame			= BIT(6)
 	};
 
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\

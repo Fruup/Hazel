@@ -25,7 +25,9 @@ namespace Hazel {
 	{
 		HZ_PROFILE_FUNCTION();
 
-		glm::mat4 transform = glm::translate(glm::mat4(1.0f), m_Position) *
+		glm::mat4 transform =
+			glm::scale(glm::mat4(1.0f), { m_Zoom, m_Zoom, 1.0f }) *
+			glm::translate(glm::mat4(1.0f), m_Position) *
 			glm::rotate(glm::mat4(1.0f), glm::radians(m_Rotation), glm::vec3(0, 0, 1));
 
 		m_ViewMatrix = glm::inverse(transform);
