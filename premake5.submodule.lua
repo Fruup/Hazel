@@ -16,7 +16,6 @@ group "Hazel/Dependencies"
 	include "Hazel/vendor/enet"
 
 group "Hazel"
-
 	project "Hazel"
 		location "Hazel"
 		kind "StaticLib"
@@ -30,8 +29,7 @@ group "Hazel"
 		pchheader "hzpch.h"
 		pchsource "Hazel/src/hzpch.cpp"
 
-		files
-		{
+		files {
 			"%{prj.name}/src/**.h",
 			"%{prj.name}/src/**.cpp",
 			"%{prj.name}/vendor/stb_image/**.h",
@@ -40,13 +38,12 @@ group "Hazel"
 			"%{prj.name}/vendor/glm/glm/**.inl",
 		}
 
-		defines
-		{
-			"_CRT_SECURE_NO_WARNINGS"
+		defines {
+			"_CRT_SECURE_NO_WARNINGS",
+			"_SILENCE_CXX17_RESULT_OF_DEPRECATION_WARNING"
 		}
 
-		includedirs
-		{
+		includedirs {
 			"%{prj.name}/src",
 			"%{prj.name}/vendor/spdlog/include",
 			"%{IncludeDir.GLFW}",
@@ -57,8 +54,7 @@ group "Hazel"
 			"%{IncludeDir.enet}"
 		}
 
-		links 
-		{ 
+		links  { 
 			"GLFW",
 			"Glad",
 			"ImGui",
@@ -69,14 +65,12 @@ group "Hazel"
 		filter "system:windows"
 			systemversion "latest"
 
-			defines
-			{
+			defines {
 				"HZ_BUILD_DLL",
 				"GLFW_INCLUDE_NONE"
 			}
 
-			links
-			{
+			links {
 				"ws2_32.lib",
 				"Winmm.lib"
 			}
