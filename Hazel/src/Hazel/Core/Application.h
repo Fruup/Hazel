@@ -30,9 +30,6 @@ namespace Hazel {
 
 		inline static Application& Get() { return *s_Instance; }
 		inline static void PushEvent(Event& e) { Get().OnEvent(e); }
-
-		inline static const std::vector<std::string>& GetCommandLineArgs() { return Get().m_CommandLineArgs; }
-
 	private:
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
@@ -44,8 +41,6 @@ namespace Hazel {
 		bool m_Minimized = false;
 		LayerStack m_LayerStack;
 		float m_LastFrameTime = 0.0f;
-
-		std::vector<std::string> m_CommandLineArgs;
 	private:
 		static Application* s_Instance;
 		friend int ::main(int argc, char** argv);
