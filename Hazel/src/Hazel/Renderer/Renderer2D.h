@@ -27,6 +27,8 @@ namespace Hazel {
 		static void DrawRotatedQuad(const glm::vec2& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 		static void DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 
+		static void DrawPartialQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec2& uvtl, const glm::vec2& uvbr, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
+		static void DrawPartialQuad(const glm::vec3& position, const glm::vec2& size, const glm::vec2& uvtl, const glm::vec2& uvbr, const Ref<Texture2D>& texture, float tilingFactor = 1.0f, const glm::vec4& tintColor = glm::vec4(1.0f));
 	};
 
 }
