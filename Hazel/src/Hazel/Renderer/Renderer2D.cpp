@@ -9,15 +9,6 @@
 
 namespace Hazel {
 
-	struct QuadVertex
-	{
-		glm::vec3 Position;
-		glm::vec4 Color;
-		glm::vec2 TexCoord;
-		float TexIndex;
-		float TilingFactor;
-	};
-
 	struct Renderer2DData
 	{
 		const uint32_t MaxQuads = 10000;
@@ -31,8 +22,8 @@ namespace Hazel {
 		Ref<Texture2D> WhiteTexture;
 
 		uint32_t QuadIndexCount = 0;
-		QuadVertex* QuadVertexBufferBase = nullptr;
-		QuadVertex* QuadVertexBufferPtr = nullptr;
+		Renderer2D::QuadVertex* QuadVertexBufferBase = nullptr;
+		Renderer2D::QuadVertex* QuadVertexBufferPtr = nullptr;
 
 		std::array<Ref<Texture2D>, MaxTextureSlots> TextureSlots;
 		uint32_t TextureSlotIndex = 1; // 0 = white texture
@@ -136,6 +127,33 @@ namespace Hazel {
 			s_Data.TextureSlots[i]->Bind(i);
 		
 		RenderCommand::DrawIndexed(s_Data.QuadVertexArray, s_Data.QuadIndexCount);
+	}
+
+	void Renderer2D::DrawQuad(const QuadVertex vertices[4], const Ref<Texture2D>& texture)
+	{
+		float textureIndex = 0.0f;
+		for (uint32_t i = 1; i < s_Data.TextureSlotIndex; i++)
+		{
+			if (*s_Data.TextureSlots[i].get() == *texture.get())
+			{
+				textureIndex = (float)i;
+				break;
+			}
+		}
+
+		if (textureIndex == 0.0f)
+		{
+			textureIndex = (float)s_Data.TextureSlotIndex;
+			s_Data.TextureSlots[s_Data.TextureSlotIndex] = texture;
+			s_Data.TextureSlotIndex++;
+		}
+
+		memcpy(s_Data.QuadVertexBufferPtr, vertices, sizeof(QuadVertex) * 4);
+		for (size_t i = 0; i < 4; i++)
+			s_Data.QuadVertexBufferPtr[i].TexIndex = textureIndex;
+
+		s_Data.QuadVertexBufferPtr += 4;
+		s_Data.QuadIndexCount += 6;
 	}
 
 	void Renderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color)
